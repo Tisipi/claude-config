@@ -33,10 +33,12 @@ claude-config/
 │   ├── fix-security-issues.md      # /fix-security-issues - Fix security vulnerabilities
 │   ├── diagram.md         # /diagram - Create architecture diagram
 │   ├── use-java.md        # /use-java - Load Java conventions
-│   └── use-csharp.md      # /use-csharp - Load C# conventions
+│   ├── use-csharp.md      # /use-csharp - Load C# conventions
+│   └── use-conductor-sharp.md  # /use-conductor-sharp - Load ConductorSharp conventions
 └── stacks/                # Stack-specific instructions
     ├── java.md
-    └── csharp.md
+    ├── csharp.md
+    └── conductor-sharp.md
 ```
 
 ## Usage
@@ -46,6 +48,7 @@ In any project, run the relevant stack command:
 ```
 /use-java
 /use-csharp
+/use-conductor-sharp
 ```
 
 ## Development Workflow
@@ -73,8 +76,8 @@ Note: models are outdated
 ### Working on Existing Projects (Brownfield)
 
 ```
-1. /use-java       Load stack conventions (or /use-csharp, etc.)
-2. Work normally   Claude follows the loaded conventions
+1. /use-java                Load stack conventions (or /use-csharp, /use-conductor-sharp, etc.)
+2. Work normally            Claude follows the loaded conventions
 ```
 
 #### Repository Context Tools
@@ -166,6 +169,7 @@ repomix /path/to/csharp-project --output context.md \
 |---------|---------|
 | `/use-java` | Load Java development conventions |
 | `/use-csharp` | Load C# development conventions |
+| `/use-conductor-sharp` | Load ConductorSharp workflow orchestration conventions |
 
 ## Command Workflows
 
