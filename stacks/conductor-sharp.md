@@ -36,76 +36,94 @@ dotnet tool install --global ConductorSharp.Toolkit
 
 Inherit from `Workflow<TWorkflow, TInput, TOutput>`. Input must extend `WorkflowInput<TOutput>`, output must extend `WorkflowOutput`. Inject `WorkflowDefinitionBuilder` via constructor.
 
+**Preferred pattern**: nest `In` and `Out` as inner classes inside the workflow. Use `partial class` to split build logic across files.
+
 ```csharp
-public class SendNotificationInput : WorkflowInput<SendNotificationOutput>
+[OriginalName("domain_resource_preparation")]
+[Version(1)]
+[WorkflowMetadata(FailureWorkflow = typeof(FailAllRunningReports))]
+public partial class ResourcePreparation(
+    WorkflowDefinitionBuilder<ResourcePreparation, ResourcePreparation.In, ResourcePreparation.Out> builder
+) : Workflow<ResourcePreparation, ResourcePreparation.In, ResourcePreparation.Out>(builder)
 {
-    public int CustomerId { get; set; }
-}
+    public class In : WorkflowInput<Out>
+    {
+        public required string OrderId { get; set; }
+        public required ResourceOrderItem Item { get; set; }
+    }
 
-public class SendNotificationOutput : WorkflowOutput
-{
-    public string EmailBody { get; set; }
-}
-
-[OriginalName("NOTIFICATION_send")]
-[WorkflowMetadata(OwnerEmail = "team@example.com")]
-public class SendNotificationWorkflow : Workflow<SendNotificationWorkflow, SendNotificationInput, SendNotificationOutput>
-{
-    public SendNotificationWorkflow(
-        WorkflowDefinitionBuilder<SendNotificationWorkflow, SendNotificationInput, SendNotificationOutput> builder
-    ) : base(builder) { }
+    public class Out : WorkflowOutput
+    {
+        public required RpdDevice RpdDevice { get; init; }
+        public required string Intent { get; set; }
+    }
 
     // Task properties — become strongly-typed references in BuildDefinition
-    public GetCustomerHandler GetCustomer { get; set; }
-    public PrepareEmailHandler PrepareEmail { get; set; }
-
-    public override void BuildDefinition()
-    {
-        _builder.AddTask(
-            wf => wf.GetCustomer,
-            wf => new GetCustomerRequest { CustomerId = wf.WorkflowInput.CustomerId }
-        );
-
-        _builder.AddTask(
-            wf => wf.PrepareEmail,
-            wf => new PrepareEmailRequest
-            {
-                CustomerName = wf.GetCustomer.Output.Name,
-                Address = wf.GetCustomer.Output.Address
-            }
-        );
-
-        _builder.SetOutput(wf => new SendNotificationOutput
-        {
-            EmailBody = wf.PrepareEmail.Output.EmailBody
-        });
-    }
+    public required GetDevicesFromInventory GetDevices { get; set; }
+    public required SwitchTaskModel DecideAction { get; set; }
 }
+```
+
+`BuildDefinition()` in the same or a partial file — always call `base.BuildDefinition()` first:
+
+```csharp
+public override void BuildDefinition()
+{
+    base.BuildDefinition();
+
+    _builder.AddTask(
+        wf => wf.GetDevices,
+        wf => new GetDevicesFromInventory { OrderId = wf.Input.OrderId }
+    );
+
+    _builder.AddTask(
+        wf => wf.DecideAction,
+        wf => new SwitchTaskInput { SwitchCaseValue = wf.GetDevices.Output.Action },
+        new DecisionCases<ResourcePreparation>
+        {
+            ["install"] = BuildInstallFlow,
+            DefaultCase = BuildRemovalFlow,
+        }
+    );
+
+    _builder.SetOutput(wf => new Out
+    {
+        RpdDevice = wf.GetDevices.Output.RpdDevice,
+        Intent = wf.GetDevices.Output.Intent,
+    });
+}
+
+// Delegate case builders to separate methods (preferred over inline lambdas for complex cases)
+private static void BuildInstallFlow(ITaskSequenceBuilder<ResourcePreparation> sc) { /* ... */ }
+private static void BuildRemovalFlow(ITaskSequenceBuilder<ResourcePreparation> sc) { /* ... */ }
 ```
 
 ### Task Handlers
 
-Extend `TaskRequestHandler<TRequest, TResponse>` (abstract class, NOT an interface). Task request implements `IRequest<TResponse>`.
+Extend `TaskRequestHandler<TRequest, TResponse>` (abstract class, NOT an interface). Use primary constructor syntax for dependency injection. Use `sealed` where appropriate.
 
 ```csharp
-public class PrepareEmailRequest : IRequest<PrepareEmailResponse>
+public class GetDevicesFromInventory : IRequest<Response>
 {
-    [Required]
-    public string CustomerName { get; set; }
-    public string Address { get; set; }
+    public required string OrderId { get; set; }
 }
 
-public class PrepareEmailResponse
+public class Response
 {
-    public string EmailBody { get; set; }
+    public required RpdDevice RpdDevice { get; set; }
+    public required string Intent { get; set; }
 }
 
-[OriginalName("EMAIL_prepare")]
-public class PrepareEmailHandler : TaskRequestHandler<PrepareEmailRequest, PrepareEmailResponse>
+[OriginalName("domain_get_devices_from_inventory")]
+public sealed class Handler(
+    IServiceInventoryManagement4ApiClient serviceInventory,
+    IResourceInventoryManagement4ApiClient resourceInventory
+) : TaskRequestHandler<GetDevicesFromInventory, Response>
 {
-    public override async Task<PrepareEmailResponse> Handle(PrepareEmailRequest request, CancellationToken cancellationToken)
+    public override async Task<Response> Handle(GetDevicesFromInventory request, CancellationToken cancellationToken)
     {
-        return new PrepareEmailResponse { EmailBody = $"Hello {request.CustomerName}!" };
+        var service = await serviceInventory.GetServiceAsync(request.OrderId, cancellationToken);
+        return new Response { /* ... */ };
     }
 }
 ```
@@ -113,14 +131,15 @@ public class PrepareEmailHandler : TaskRequestHandler<PrepareEmailRequest, Prepa
 - PascalCase properties auto-convert to `snake_case` in Conductor JSON
 - Override with `[JsonProperty("custom_name")]` when needed
 - Use `[Required]` on request model properties — validated by `AddValidation()` pipeline
+- Use `required` keyword on all input/output properties
 
 ### Metadata Attributes
 
 | Attribute | Target | Description |
 |---|---|---|
-| `[OriginalName("NAME")]` | Class | Custom task/workflow name in Conductor |
+| `[OriginalName("name")]` | Class | Custom task/workflow name in Conductor |
 | `[WorkflowMetadata(...)]` | Workflow class | OwnerEmail, OwnerApp, Description, FailureWorkflow |
-| `[Version(n)]` | Class | Version number for sub-workflow references |
+| `[Version(n)]` | Workflow class | Version number for sub-workflow references |
 | `[TaskDomain("domain")]` | Task class | Assign task to specific domain |
 
 Task metadata is configured at registration (not via attribute):
@@ -134,12 +153,12 @@ services.RegisterWorkerTask<MyTaskHandler>(options =>
 
 ### Expression Generation
 
-C# property access and string interpolation auto-translates to Conductor expressions:
+C# property access and string interpolation auto-translates to Conductor expressions. Use `wf.Input` to reference workflow input (from inner `In` class):
 
 ```csharp
 // C#
 CustomerName = $"{wf.GetCustomer.Output.FirstName} {wf.GetCustomer.Output.LastName}"
-Address = wf.WorkflowInput.Address
+Address = wf.Input.Address   // wf.Input references the workflow's In class
 
 // Generated Conductor JSON
 "customer_name": "${get_customer.output.first_name} ${get_customer.output.last_name}",
@@ -150,9 +169,9 @@ Address = wf.WorkflowInput.Address
 
 - **Property chaining**: `wf.Task.Output.Field`
 - **String interpolation**: `$"{wf.Task.Output.Name}"`
-- **String concatenation**: `1 + "Str_" + wf.WorkflowInput.Input`
+- **String concatenation**: `1 + "Str_" + wf.Input.Value`
 - **Type casting**: `((FullName)wf.Task.Output.Name).FirstName` → `${task.output.name.first_name}`
-- **Dictionary indexing**: `wf.WorkflowInput.Dictionary["key"].Property` → `${workflow.input.dictionary['key'].property}`
+- **Dictionary indexing**: `wf.Input.Dictionary["key"].Property` → `${workflow.input.dictionary['key'].property}`
 - **Array initialization**: `new[] { 1, 2, 3 }` → `[1, 2, 3]`
 - **Object initialization**: Nested objects and anonymous types supported
 - **Workflow name embedding**: `NamingUtil.NameOf<MyWorkflow>()` → resolves `[OriginalName]` value
@@ -162,17 +181,14 @@ Address = wf.WorkflowInput.Address
 Inject `ConductorSharpExecutionContext` to access workflow/task metadata:
 
 ```csharp
-public class MyHandler : TaskRequestHandler<MyRequest, MyResponse>
+public sealed class Handler(ConductorSharpExecutionContext context)
+    : TaskRequestHandler<MyRequest, MyResponse>
 {
-    private readonly ConductorSharpExecutionContext _context;
-
-    public MyHandler(ConductorSharpExecutionContext context) => _context = context;
-
     public override async Task<MyResponse> Handle(MyRequest request, CancellationToken cancellationToken)
     {
-        var workflowId = _context.WorkflowId;
-        var taskId = _context.TaskId;
-        var correlationId = _context.CorrelationId;
+        var workflowId = context.WorkflowId;
+        var taskId = context.TaskId;
+        var correlationId = context.CorrelationId;
         return new MyResponse();
     }
 }
@@ -183,7 +199,7 @@ public class MyHandler : TaskRequestHandler<MyRequest, MyResponse>
 ### Simple Task
 
 ```csharp
-_builder.AddTask(wf => wf.MyTask, wf => new MyTaskRequest { Input = wf.WorkflowInput.Value });
+_builder.AddTask(wf => wf.MyTask, wf => new MyTaskRequest { Input = wf.Input.Value });
 ```
 
 ### Sub-Workflow Task
@@ -193,26 +209,24 @@ Declare with `SubWorkflowTaskModel<TInput, TOutput>`:
 ```csharp
 public SubWorkflowTaskModel<ChildWorkflowInput, ChildWorkflowOutput> ChildWorkflow { get; set; }
 
-_builder.AddTask(wf => wf.ChildWorkflow, wf => new ChildWorkflowInput { CustomerId = wf.WorkflowInput.CustomerId });
+_builder.AddTask(wf => wf.ChildWorkflow, wf => new ChildWorkflowInput { OrderId = wf.Input.OrderId });
 ```
 
 ### Switch Task (Conditional Branching)
 
-Declare with `SwitchTaskModel`. Use `DecisionCases<TWorkflow>` with a builder lambda per case:
+Declare with `SwitchTaskModel`. Use `DecisionCases<TWorkflow>` with builder lambdas or method references:
 
 ```csharp
-public SwitchTaskModel SwitchTask { get; set; }
-public TaskA TaskInCaseA { get; set; }
-public TaskB TaskInCaseB { get; set; }
+public required SwitchTaskModel DecideAction { get; set; }
 
 _builder.AddTask(
-    wf => wf.SwitchTask,
-    wf => new SwitchTaskInput { SwitchCaseValue = wf.WorkflowInput.Operation },
+    wf => wf.DecideAction,
+    wf => new SwitchTaskInput { SwitchCaseValue = wf.GetAction.Output.ActionType },
     new DecisionCases<MyWorkflow>
     {
-        ["caseA"] = builder => builder.AddTask(wf => wf.TaskInCaseA, wf => new TaskARequest { }),
-        ["caseB"] = builder => builder.AddTask(wf => wf.TaskInCaseB, wf => new TaskBRequest { }),
-        DefaultCase = builder => { /* default case tasks */ }
+        [nameof(ActionType.Install)] = sc => sc.AddTask(wf => wf.InstallTask, wf => new()),
+        [nameof(ActionType.Remove)] = sc => sc.AddTask(wf => wf.RemoveTask, wf => new()),
+        DefaultCase = BuildDefaultFlow,   // method reference preferred for complex cases
     }
 );
 ```
@@ -228,8 +242,8 @@ _builder.AddTask(
     wf => wf.DynamicHandler,
     wf => new DynamicTaskInput<ExpectedInput, ExpectedOutput>
     {
-        TaskInput = new ExpectedInput { CustomerId = wf.WorkflowInput.CustomerId },
-        TaskToExecute = wf.WorkflowInput.TaskName
+        TaskInput = new ExpectedInput { OrderId = wf.Input.OrderId },
+        TaskToExecute = wf.Input.TaskName
     }
 );
 ```
@@ -249,17 +263,37 @@ _builder.AddTask(
 );
 ```
 
+For dynamic fork-join with runtime-generated tasks, build `WorkflowTask` objects and serialize inputs as `JObject`:
+
+```csharp
+var tasks = new List<WorkflowTask>();
+var taskInputs = new Dictionary<string, JObject>();
+
+foreach (var item in items)
+{
+    var taskName = $"{workflowName}/{item.Id}";
+    tasks.Add(new WorkflowTask
+    {
+        TaskReferenceName = taskName,
+        Name = taskName,
+        Type = "SUB_WORKFLOW",
+        SubWorkflowParam = new() { Name = workflowName },
+        Optional = true,
+    });
+    taskInputs.Add(taskName, JObject.FromObject(new { item.Id, item.Name }));
+}
+```
+
 ### Do-While Loop Task
 
 Output is `NoOutput` — no strongly typed output available:
 
 ```csharp
 public DoWhileTaskModel DoWhile { get; set; }
-public GetCustomerHandler GetCustomer { get; set; }
 
 _builder.AddTask(
     wf => wf.DoWhile,
-    wf => new DoWhileInput { Value = wf.WorkflowInput.Loops },
+    wf => new DoWhileInput { Value = wf.Input.Loops },
     "$.do_while.iteration < $.value",  // Loop condition (JavaScript)
     builder =>
     {
@@ -277,7 +311,7 @@ public LambdaTaskModel<LambdaInput, LambdaOutput> LambdaTask { get; set; }
 
 _builder.AddTask(
     wf => wf.LambdaTask,
-    wf => new LambdaInput { Value = wf.WorkflowInput.Input },
+    wf => new LambdaInput { Value = wf.Input.Value },
     script: "return { something: $.Value.toUpperCase() }"
 );
 
@@ -297,15 +331,21 @@ _builder.AddTask(
 
 ### Terminate Task
 
+Use `TerminationStatus` enum, not string literals:
+
 ```csharp
-public TerminateTaskModel TerminateTask { get; set; }
+public TerminateTaskModel Terminate { get; set; }
 
 _builder.AddTask(
-    wf => wf.TerminateTask,
+    wf => wf.Terminate,
     wf => new TerminateTaskInput
     {
-        TerminationStatus = "COMPLETED",
-        WorkflowOutput = new { Result = "Done" }
+        TerminationStatus = TerminationStatus.Completed,
+        WorkflowOutput = new Out
+        {
+            RpdDevice = wf.GetDevices.Output.RpdDevice,
+            Intent = wf.GetDevices.Output.Intent,
+        }
     }
 );
 ```
@@ -325,7 +365,7 @@ public JsonJqTransformTaskModel<JqInput, JqOutput> TransformTask { get; set; }
 
 _builder.AddTask(
     wf => wf.TransformTask,
-    wf => new JqInput { QueryExpression = ".data | map(.name)", Data = wf.WorkflowInput.Items }
+    wf => new JqInput { QueryExpression = ".data | map(.name)", Data = wf.Input.Items }
 );
 ```
 
@@ -336,7 +376,7 @@ Fallback for unsupported task types:
 ```csharp
 _builder.AddTasks(new WorkflowTask
 {
-    Name = "CUSTOM_task",
+    Name = "custom_task",
     TaskReferenceName = "custom_ref",
     Type = "CUSTOM",
     InputParameters = new Dictionary<string, object> { ["key"] = "value" }
@@ -357,25 +397,58 @@ _builder.AddTask(wf => wf.OptionalTask, wf => new OptionalTaskRequest { }).AsOpt
 
 ```csharp
 services
-    .AddConductorSharp(baseUrl: "http://localhost:8080")
+    .AddConductorSharp(baseUrl: configuration.GetValue<string>("Conductor:BaseUrl"))
+    .SetBuildConfiguration(new BuildConfiguration
+    {
+        DefaultOwnerApp = configuration.GetValue<string>("Conductor:BuildConfiguration:DefaultOwnerApp") ?? "my-app",
+        DefaultOwnerEmail = configuration.GetValue<string>("Conductor:BuildConfiguration:DefaultOwnerEmail") ?? "team@example.com",
+    })
     .AddExecutionManager(
-        maxConcurrentWorkers: 10,
-        sleepInterval: 500,
-        longPollInterval: 100,
+        maxConcurrentWorkers: configuration.GetValue<int?>("Conductor:MaxConcurrentWorkers") ?? 10,
+        sleepInterval: configuration.GetValue("Conductor:SleepInterval", 1000),
+        longPollInterval: configuration.GetValue("Conductor:LongPollInterval", 1000),
         domain: null,
         typeof(Program).Assembly
     )
+    .UseBetaExecutionManager()
     .AddPipelines(pipelines =>
     {
-        pipelines.AddCustomBehavior(typeof(MyCustomBehavior<,>)); // custom (runs first)
+        pipelines.AddCustomBehavior(typeof(MyCustomBehavior<,>));
         pipelines.AddExecutionTaskTracking();
         pipelines.AddContextLogging();
         pipelines.AddRequestResponseLogging();
         pipelines.AddValidation();
-    });
+    })
+    .AddConductorSharpPatterns();
+```
 
-services.RegisterWorkerTask<GetCustomerHandler>();
-services.RegisterWorkflow<SendNotificationWorkflow>();
+### Assembly-Based Registration (Preferred)
+
+Rather than registering each handler and workflow manually, scan the assembly automatically:
+
+```csharp
+// Extension method — define once and reuse across all modules
+public static IServiceCollection RegisterAllConductorPartsFromAssembly(
+    this IServiceCollection services, Assembly assembly)
+{
+    return services
+        .RegisterWorkflowsFromAssembly(assembly)
+        .RegisterWorkersFromAssembly(assembly)
+        .AddMediatR(config => config.RegisterServicesFromAssembly(assembly));
+}
+
+// Usage
+services.RegisterAllConductorPartsFromAssembly(typeof(Program).Assembly);
+```
+
+Manual registration (for individual cases):
+```csharp
+services.RegisterWorkerTask<MyTaskHandler>(options =>
+{
+    options.OwnerEmail = "team@example.com";
+    options.Description = "My task description";
+});
+services.RegisterWorkflow<MyWorkflow>();
 ```
 
 ### Multiple Conductor Instances
@@ -414,7 +487,7 @@ builder.Services.AddHealthChecks()
 // In execution manager chain:
 .SetHealthCheckService<InMemoryHealthService>()  // default
 // or
-.SetHealthCheckService<FileHealthService>()  // persists to CONDUCTORSHARP_HEALTH.json
+.SetHealthCheckService<FileHealthService>()      // persists to CONDUCTORSHARP_HEALTH.json
 ```
 
 ## API Services
@@ -434,7 +507,6 @@ builder.Services.AddHealthChecks()
 ## Patterns Package
 
 ```csharp
-.AddExecutionManager(...)
 .AddConductorSharpPatterns()   // Adds WaitSeconds, ReadWorkflowTasks
 .AddCSharpLambdaTasks()        // Adds C# lambda task support
 ```
@@ -456,7 +528,7 @@ _builder.AddTask(
     wf => wf.ReadTasks,
     wf => new ReadWorkflowTasksInput
     {
-        WorkflowId = wf.WorkflowInput.TargetWorkflowId,
+        WorkflowId = wf.Input.TargetWorkflowId,
         TaskNames = "task1,task2"
     }
 );
@@ -471,7 +543,7 @@ public CSharpLambdaTaskModel<LambdaInput, LambdaOutput> InlineLambda { get; set;
 
 _builder.AddTask(
     wf => wf.InlineLambda,
-    wf => new LambdaInput { Value = wf.WorkflowInput.Input },
+    wf => new LambdaInput { Value = wf.Input.Value },
     input => new LambdaOutput { Result = input.Value.ToUpperInvariant() }
 );
 ```
@@ -479,7 +551,6 @@ _builder.AddTask(
 ## Kafka Cancellation Notifier
 
 ```csharp
-.AddExecutionManager(...)
 .AddKafkaCancellationNotifier(
     kafkaBootstrapServers: "localhost:9092",
     topicName: "conductor.status.task",
@@ -493,15 +564,15 @@ _builder.AddTask(
 Generate C# models from existing Conductor task/workflow definitions.
 
 ```bash
-# Create conductorsharp.yaml
+# conductorsharp.yaml
 baseUrl: http://localhost:8080
 apiPath: api
 namespace: MyApp.Generated
 destination: ./Generated
 
-# Scaffold
+# Commands
 dotnet-conductorsharp                          # all tasks and workflows
-dotnet-conductorsharp -n CUSTOMER_get          # filter by name
+dotnet-conductorsharp -n domain_get_customer   # filter by name
 dotnet-conductorsharp -e team@example.com      # filter by owner email
 dotnet-conductorsharp --no-tasks               # skip tasks
 dotnet-conductorsharp --dry-run                # preview only
@@ -511,24 +582,26 @@ dotnet-conductorsharp --dry-run                # preview only
 
 ### Naming
 
-- **Domain-prefix** all task and workflow names: `CUSTOMER_get`, `EMAIL_prepare`, `ORDER_validate`
-  - Prevents naming conflicts across microservices
-- Use `[OriginalName("DOMAIN_action")]` on every task handler and workflow class
-- Task names: `SCREAMING_SNAKE_CASE` (Conductor convention)
+- **Domain-prefix** all task and workflow names using `snake_case`: `access_rpd_get_device`, `order_validate_input`
+- Use `[OriginalName("domain_action_description")]` on every task handler and workflow class
+- Task/workflow names: `snake_case` (all lowercase with underscores)
 - C# class names: PascalCase, semantically matching the `[OriginalName]`
+- Use `nameof()` for switch case keys when discriminating on enum values: `[nameof(ActionType.Install)]`
 
 ### File Organization
 
-Keep request/response models in the same file as the handler when you have many workers:
+Split workflows across partial classes. Keep request/response models in the same file as the handler:
 
 ```
 src/
   Workflows/
-    SendNotification/
-      SendNotificationWorkflow.cs     # Workflow + Input + Output
+    ResourcePreparation/
+      ResourcePreparation.cs               # Class definition + In/Out + task properties
+      ResourcePreparationForInstall.cs     # partial — BuildInstallFlow()
+      ResourcePreparationForRemoval.cs     # partial — BuildRemovalFlow()
   Tasks/
-    GetCustomer/
-      GetCustomerHandler.cs           # Handler + Request + Response in one file
+    GetDevicesFromInventory/
+      GetDevicesFromInventory.cs           # Handler + Request + Response in one file
 ```
 
 ### Validation
@@ -539,11 +612,19 @@ Use data annotation attributes on request models, not validation logic in handle
 public class GetCustomerRequest : IRequest<GetCustomerResponse>
 {
     [Required]
-    public string CustomerId { get; set; }
+    public required string CustomerId { get; set; }
 }
 ```
 
 Register `AddValidation()` in the pipeline to enforce automatically.
+
+### Failure Workflows
+
+Define a shared failure workflow per domain and reference it via `[WorkflowMetadata]`:
+
+```csharp
+[WorkflowMetadata(FailureWorkflow = typeof(FailAllRunningReports))]
+```
 
 ## Known Limitations
 
