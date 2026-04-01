@@ -34,7 +34,8 @@ claude-config/
 │   ├── diagram.md         # /diagram - Create architecture diagram
 │   ├── use-java.md        # /use-java - Load Java conventions
 │   ├── use-csharp.md      # /use-csharp - Load C# conventions
-│   └── use-conductor-sharp.md  # /use-conductor-sharp - Load ConductorSharp conventions
+│   ├── use-conductor-sharp.md  # /use-conductor-sharp - Load ConductorSharp conventions
+│   └── repomix.md       # /repomix - Generate LLM-friendly repository dump
 └── stacks/                # Stack-specific instructions
     ├── java.md
     ├── csharp.md
@@ -83,6 +84,8 @@ Note: models are outdated
 #### Repository Context Tools
 
 For large brownfield projects, use repository dumping tools to provide Claude with full codebase context in a single document. This is more efficient than exploring files incrementally.
+
+**Tip:** Use the `/repomix` command for an interactive prompt that generates the right repomix command for your needs.
 
 **Available tools:**
 - **[repomix](https://github.com/yamadashy/repomix)** — Recommended. Generates markdown with file tree and code, respects .gitignore
