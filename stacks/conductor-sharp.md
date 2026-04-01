@@ -36,7 +36,13 @@ dotnet tool install --global ConductorSharp.Toolkit
 
 Inherit from `Workflow<TWorkflow, TInput, TOutput>`. Input must extend `WorkflowInput<TOutput>`, output must extend `WorkflowOutput`. Inject `WorkflowDefinitionBuilder` via constructor.
 
-**Preferred pattern**: nest `In` and `Out` as inner classes inside the workflow. Use `partial class` to split build logic across files.
+Two equivalent conventions exist for workflow input/output — pick one and apply it consistently within a project:
+
+**Option A — Nested `In`/`Out` classes (guide default):** input and output are inner classes of the workflow. Keeps everything self-contained, works well with `partial class`.
+
+**Option B — Flat external classes:** input and output are separate top-level classes named `<WorkflowName>Input` / `<WorkflowName>Output`. More verbose but easier to reference from outside the workflow class. Access via `wf.Input` is identical in both options.
+
+Use Option A unless the project already uses Option B — don't mix within a project.
 
 ```csharp
 [OriginalName("domain_resource_preparation")]
@@ -61,6 +67,37 @@ public partial class ResourcePreparation(
     // Task properties — become strongly-typed references in BuildDefinition
     public required GetDevicesFromInventory GetDevices { get; set; }
     public required SwitchTaskModel DecideAction { get; set; }
+}
+```
+
+**Option B example (flat classes):**
+
+```csharp
+public class ResourcePreparationInput : WorkflowInput<ResourcePreparationOutput>
+{
+    public required string OrderId { get; set; }
+}
+
+public class ResourcePreparationOutput : WorkflowOutput
+{
+    public required string ResourceId { get; set; }
+}
+
+[OriginalName("domain_resource_preparation")]
+public class ResourcePreparation(
+    WorkflowDefinitionBuilder<ResourcePreparation, ResourcePreparationInput, ResourcePreparationOutput> builder
+) : Workflow<ResourcePreparation, ResourcePreparationInput, ResourcePreparationOutput>(builder)
+{
+    public required GetDevicesFromInventory.Handler GetDevices { get; set; }
+
+    public override void BuildDefinition()
+    {
+        _builder.AddTask(
+            wf => wf.GetDevices,
+            wf => new() { OrderId = wf.Input.OrderId }
+        );
+        _builder.SetOutput(wf => new() { ResourceId = wf.GetDevices.Output.ResourceId });
+    }
 }
 ```
 
@@ -624,6 +661,125 @@ Define a shared failure workflow per domain and reference it via `[WorkflowMetad
 
 ```csharp
 [WorkflowMetadata(FailureWorkflow = typeof(FailAllRunningReports))]
+```
+
+## TMF652 Trigger-and-Poll Pattern (SOM → ROM)
+
+When a SOM worker needs to trigger a ROM workflow via a TMF652 resource order and receive its output:
+
+1. Fetch the resource specification from `IResourceCatalogManagement4ApiClient.GetResourceSpecificationAsync(specId, ct)`
+2. Create a `ResourceRefOrValue`, attach a `ResourceSpecificationRef`, and use `ToEntityProxy<T>(specification)` to set input characteristics
+3. Submit the order via `IResourceOrderingManagement4ApiClient.CreateResourceOrderAsync(...)`
+4. Poll `GetResourceOrderAsync(orderId, ct)` until a terminal state is reached
+5. Read output characteristics from the completed order item's resource via `ToEntityProxy<T>(specification)`
+
+Terminal states: `Completed`, `Failed`, `Cancelled`, `Rejected`. Throw on any non-`Completed` terminal state.
+
+```csharp
+public sealed class Handler(
+    IResourceCatalogManagement4ApiClient catalogClient,
+    IResourceOrderingManagement4ApiClient romClient
+) : TaskRequestHandler<Request, Response>
+{
+    private static readonly HashSet<ResourceOrderStateType> TerminalStates =
+        [ResourceOrderStateType.Completed, ResourceOrderStateType.Failed,
+         ResourceOrderStateType.Cancelled, ResourceOrderStateType.Rejected];
+
+    private const int PollIntervalMs = 2000;
+    private const int MaxPollAttempts = 30;
+
+    public override async Task<Response> Handle(Request request, CancellationToken cancellationToken)
+    {
+        var specification = await catalogClient.GetResourceSpecificationAsync(
+            MyResource.Id, cancellationToken);
+
+        var resource = new ResourceRefOrValue
+        {
+            ResourceSpecification = new ResourceSpecificationRef { Id = MyResource.Id, Name = MyResource.Name }
+        };
+        var inputProxy = resource.ToEntityProxy<MyResourceEntityProxy>(specification);
+        inputProxy.SomeField = request.SomeValue;
+
+        var order = await romClient.CreateResourceOrderAsync(new ResourceOrder_Create
+        {
+            State = ResourceOrderStateType.Acknowledged,
+            Description = "...",
+            OrderItem =
+            [
+                new ResourceOrderItem
+                {
+                    Id = "1",
+                    Quantity = 1,
+                    Action = OrderItemActionType.Add,
+                    State = ResourceOrderItemStateType.Initial,
+                    Resource = resource,
+                    ResourceSpecification = new ResourceSpecificationRef { Id = MyResource.Id, Name = MyResource.Name }
+                }
+            ]
+        }, cancellationToken);
+
+        var orderId = order.Id ?? throw new InvalidOperationException("Resource order created without an ID.");
+        var completedOrder = await PollUntilTerminalAsync(orderId, cancellationToken);
+
+        if (completedOrder.State != ResourceOrderStateType.Completed)
+        {
+            throw new InvalidOperationException(
+                $"Resource order '{orderId}' ended with state '{completedOrder.State}'.");
+        }
+
+        var outputResource = completedOrder.OrderItem?.First().Resource
+            ?? throw new InvalidOperationException($"Completed order '{orderId}' has no order items or resource.");
+        var outputProxy = outputResource.ToEntityProxy<MyResourceEntityProxy>(specification);
+
+        return new Response { OutputField = outputProxy.OutputField };
+    }
+
+    private async Task<ResourceOrder> PollUntilTerminalAsync(string orderId, CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < MaxPollAttempts; attempt++)
+        {
+            await Task.Delay(PollIntervalMs, cancellationToken);
+            var order = await romClient.GetResourceOrderAsync(orderId, cancellationToken);
+            if (order.State is { } state && TerminalStates.Contains(state))
+            {
+                return order;
+            }
+        }
+        throw new TimeoutException(
+            $"Resource order '{orderId}' did not reach a terminal state within {PollIntervalMs * MaxPollAttempts / 1000} seconds.");
+    }
+}
+```
+
+### Entity Proxy for TMF Characteristics
+
+Generated entity proxies (`*EntityProxy`) provide type-safe access to TMF resource characteristics. They work on both inventory entities (`Resource`) and order entities (`ResourceRefOrValue`). Setting a proxy property writes directly to the entity's `ResourceCharacteristic` list in-place.
+
+```csharp
+// Set characteristics on a new resource for an order
+var resource = new ResourceRefOrValue { ... };
+var proxy = resource.ToEntityProxy<MyResourceEntityProxy>(specification);
+proxy.Name = "value";   // writes to resource.ResourceCharacteristic
+
+// Read characteristics from a completed order item
+var outputProxy = completedOrderItem.Resource.ToEntityProxy<MyResourceEntityProxy>(specification);
+var value = outputProxy.Name;
+```
+
+**Characteristic type coercion:** Output IDs that are semantically `int` (e.g. `CustomerID`) are stored as `string` in TMF characteristics. Always parse with `InvariantCulture`:
+
+```csharp
+int customerId = int.Parse(outputProxy.CustomerID, CultureInfo.InvariantCulture);
+```
+
+### Avoid Tasks for Trivial Computations
+
+Do not create a Conductor worker task solely to perform a simple inline computation (e.g. multiplying a value by a constant). Compute it inside the worker that uses the result. A Conductor task adds serialization overhead and network round-trips that are not justified for logic that fits on one line.
+
+```csharp
+// Wrong: separate Conductor task just to multiply
+// Right: compute inline in the worker that uses it
+inputProxy.SimultaneousCalls = request.MaxSimultaneousCalls * SimultaneousCallsMultiplier;
 ```
 
 ## Known Limitations
