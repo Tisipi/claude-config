@@ -49,6 +49,7 @@ Otherwise, proceed autonomously and report what was done.
 - YAGNI: Don't add features or abstraction for hypothetical future needs
 - Preserve existing code comments unless provably false
 - Add "ABOUTME: " header comments to all new files explaining purpose and key concepts
+- Default to no comments; add one only when the WHY is non-obvious. One short line max — **except** XML doc comments on public interface methods, where multi-line blocks are acceptable to document non-obvious contract semantics (null vs. throw, side effects, preconditions)
 
 ### Testing (TDD Mandatory - NO EXCEPTIONS)
 - Practice Test-Driven Development: write tests before implementation
@@ -73,7 +74,7 @@ Otherwise, proceed autonomously and report what was done.
 - **Sanitization**: All user input must be validated and sanitized at boundaries.
 - **Secrets**: NEVER commit secrets or credentials. Use environment variables.
 - **Dependencies**: Be cautious adding new dependencies; prefer standard library where possible.
-- **Review**: For sensitive changes, refer to `commands/security-review.md`.
+- **Review**: For sensitive changes, refer to `commands/security-review-full.md`.
 
 ## Decision Framework
 

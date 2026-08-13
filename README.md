@@ -24,11 +24,11 @@ claude-config/
 │   ├── hone-idea.md       # /hone-idea - Develop spec through Q&A
 │   ├── plan.md            # /plan - Generate implementation plan
 │   ├── continue.md        # /continue - Execute next step
-│   ├── review.md          # /review - Review code for issues
+│   ├── review-session.md  # /review-session - Review code for issues
 │   ├── review-fix.md      # /review-fix - Fix issues from review-comments.md
 │   ├── find-missing-tests.md       # /find-missing-tests - Identify missing test cases
 │   ├── fix-missing-tests.md        # /fix-missing-tests - Implement missing tests
-│   ├── security-review.md          # /security-review - Full codebase security review
+│   ├── security-review-full.md     # /security-review-full - Full codebase security review
 │   ├── security-review-area.md     # /security-review-area - Targeted security review
 │   ├── fix-security-issues.md      # /fix-security-issues - Fix security vulnerabilities
 │   ├── diagram.md         # /diagram - Create architecture diagram
@@ -152,11 +152,11 @@ repomix /path/to/csharp-project --output context.md \
 
 | Command | Purpose | Output File |
 |---------|---------|------------|
-| `/review` | Review code for bugs, clarity, and issues | `review-comments.md` |
+| `/review-session` | Review code for bugs, clarity, and issues | `review-comments.md` |
 | `/review-fix` | Fix issues from review-comments.md | — |
 | `/find-missing-tests` | Identify missing test cases | `missing-tests.md` |
 | `/fix-missing-tests` | Implement missing tests | — |
-| `/security-review` | Full codebase security review | `security-issues.md` |
+| `/security-review-full` | Full codebase security review | `security-issues.md` |
 | `/security-review-area` | Security review of specific code area | `security-issues.md` |
 | `/fix-security-issues` | Fix security vulnerabilities | — |
 
@@ -187,11 +187,11 @@ repomix /path/to/csharp-project --output context.md \
 
 ### Code Quality Workflow Example
 ```bash
-/review                  # Identify issues → review-comments.md
+/review-session           # Identify issues → review-comments.md
 /review-fix              # Fix reported issues
 /find-missing-tests      # Identify gaps → missing-tests.md
 /fix-missing-tests       # Implement missing tests
-/security-review         # Check security → security-issues.md
+/security-review-full    # Check security → security-issues.md
 /fix-security-issues     # Fix vulnerabilities
 ```
 

@@ -42,7 +42,7 @@ Two equivalent conventions exist for workflow input/output — pick one and appl
 
 **Option B — Flat external classes:** input and output are separate top-level classes named `<WorkflowName>Input` / `<WorkflowName>Output`. More verbose but easier to reference from outside the workflow class. Access via `wf.Input` is identical in both options.
 
-Use Option A unless the project already uses Option B — don't mix within a project.
+Use Option B unless the project already uses Option A — don't mix within a project.
 
 ```csharp
 [OriginalName("domain_resource_preparation")]
@@ -94,9 +94,9 @@ public class ResourcePreparation(
     {
         _builder.AddTask(
             wf => wf.GetDevices,
-            wf => new() { OrderId = wf.Input.OrderId }
+            wf => new GetDevicesFromInventory.Request() { OrderId = wf.Input.OrderId }
         );
-        _builder.SetOutput(wf => new() { ResourceId = wf.GetDevices.Output.ResourceId });
+        _builder.SetOutput(wf => new ResourcePreparationOutput() { ResourceId = wf.GetDevices.Output.ResourceId });
     }
 }
 ```
@@ -204,7 +204,7 @@ Address = wf.Input.Address   // wf.Input references the workflow's In class
 
 **Supported expression features:**
 
-- **Property chaining**: `wf.Task.Output.Field`
+- **Property chaining**: `wf.Task.Output.Field` — plain member access only; no method calls and no `Nullable<T>.Value` (see Known Limitations)
 - **String interpolation**: `$"{wf.Task.Output.Name}"`
 - **String concatenation**: `1 + "Str_" + wf.Input.Value`
 - **Type casting**: `((FullName)wf.Task.Output.Name).FirstName` → `${task.output.name.first_name}`
@@ -641,6 +641,20 @@ src/
       GetDevicesFromInventory.cs           # Handler + Request + Response in one file
 ```
 
+### Explicit Types in AddTask Lambdas
+
+Always use explicit type names in `AddTask` and `SetOutput` lambdas — never target-typed `new()`. ConductorSharp's expression builder requires the concrete type to generate the correct Conductor task definition, and `new()` produces an analyzer warning.
+
+```csharp
+// Wrong
+_builder.AddTask(wf => wf.GetDevices, wf => new() { OrderId = wf.Input.OrderId });
+_builder.SetOutput(wf => new() { ResourceId = wf.GetDevices.Output.ResourceId });
+
+// Correct
+_builder.AddTask(wf => wf.GetDevices, wf => new GetDevicesFromInventory.Request() { OrderId = wf.Input.OrderId });
+_builder.SetOutput(wf => new ResourcePreparationOutput() { ResourceId = wf.GetDevices.Output.ResourceId });
+```
+
 ### Validation
 
 Use data annotation attributes on request models, not validation logic in handlers:
@@ -663,17 +677,13 @@ Define a shared failure workflow per domain and reference it via `[WorkflowMetad
 [WorkflowMetadata(FailureWorkflow = typeof(FailAllRunningReports))]
 ```
 
-## TMF652 Trigger-and-Poll Pattern (SOM → ROM)
+## TMF652 Trigger + Signal-Based Completion Pattern (SOM → ROM)
 
-When a SOM worker needs to trigger a ROM workflow via a TMF652 resource order and receive its output:
+When a SOM fulfillment needs to trigger ROM workflows and wait for completion, **do not poll inside a worker**. The platform (ResourceOrderingEngine) sends a Conductor signal when a ROM order reaches a terminal state. Use a `ROM_PollAndRetry` sub-workflow that waits for this signal.
 
-1. Fetch the resource specification from `IResourceCatalogManagement4ApiClient.GetResourceSpecificationAsync(specId, ct)`
-2. Create a `ResourceRefOrValue`, attach a `ResourceSpecificationRef`, and use `ToEntityProxy<T>(specification)` to set input characteristics
-3. Submit the order via `IResourceOrderingManagement4ApiClient.CreateResourceOrderAsync(...)`
-4. Poll `GetResourceOrderAsync(orderId, ct)` until a terminal state is reached
-5. Read output characteristics from the completed order item's resource via `ToEntityProxy<T>(specification)`
+### The Three-Part Pattern
 
-Terminal states: `Completed`, `Failed`, `Cancelled`, `Rejected`. Throw on any non-`Completed` terminal state.
+**1. Trigger worker** — fire the resource order, return `RomOrderId` only (no polling):
 
 ```csharp
 public sealed class Handler(
@@ -681,17 +691,9 @@ public sealed class Handler(
     IResourceOrderingManagement4ApiClient romClient
 ) : TaskRequestHandler<Request, Response>
 {
-    private static readonly HashSet<ResourceOrderStateType> TerminalStates =
-        [ResourceOrderStateType.Completed, ResourceOrderStateType.Failed,
-         ResourceOrderStateType.Cancelled, ResourceOrderStateType.Rejected];
-
-    private const int PollIntervalMs = 2000;
-    private const int MaxPollAttempts = 30;
-
     public override async Task<Response> Handle(Request request, CancellationToken cancellationToken)
     {
-        var specification = await catalogClient.GetResourceSpecificationAsync(
-            MyResource.Id, cancellationToken);
+        var specification = await catalogClient.GetResourceSpecificationAsync(MyResource.Id, cancellationToken);
 
         var resource = new ResourceRefOrValue
         {
@@ -708,8 +710,7 @@ public sealed class Handler(
             [
                 new ResourceOrderItem
                 {
-                    Id = "1",
-                    Quantity = 1,
+                    Id = "1", Quantity = 1,
                     Action = OrderItemActionType.Add,
                     State = ResourceOrderItemStateType.Initial,
                     Resource = resource,
@@ -718,53 +719,97 @@ public sealed class Handler(
             ]
         }, cancellationToken);
 
-        var orderId = order.Id ?? throw new InvalidOperationException("Resource order created without an ID.");
-        var completedOrder = await PollUntilTerminalAsync(orderId, cancellationToken);
-
-        if (completedOrder.State != ResourceOrderStateType.Completed)
+        return new Response
         {
-            throw new InvalidOperationException(
-                $"Resource order '{orderId}' ended with state '{completedOrder.State}'.");
-        }
-
-        var outputResource = completedOrder.OrderItem?.First().Resource
-            ?? throw new InvalidOperationException($"Completed order '{orderId}' has no order items or resource.");
-        var outputProxy = outputResource.ToEntityProxy<MyResourceEntityProxy>(specification);
-
-        return new Response { OutputField = outputProxy.OutputField };
-    }
-
-    private async Task<ResourceOrder> PollUntilTerminalAsync(string orderId, CancellationToken cancellationToken)
-    {
-        for (var attempt = 0; attempt < MaxPollAttempts; attempt++)
-        {
-            await Task.Delay(PollIntervalMs, cancellationToken);
-            var order = await romClient.GetResourceOrderAsync(orderId, cancellationToken);
-            if (order.State is { } state && TerminalStates.Contains(state))
-            {
-                return order;
-            }
-        }
-        throw new TimeoutException(
-            $"Resource order '{orderId}' did not reach a terminal state within {PollIntervalMs * MaxPollAttempts / 1000} seconds.");
+            RomOrderId = order.Id ?? throw new InvalidOperationException("Resource order created without an ID.")
+        };
     }
 }
 ```
+
+**2. `ROM_PollAndRetry` sub-workflow** — waits for the platform signal, then reads inventory (`ConductorSharp.Patterns` v4+ required for `SignalWait`):
+
+```csharp
+// using ConductorSharp.Patterns.Model;
+// using ConductorSharp.Patterns.Workflows;
+
+[OriginalName("my_rom_poll_and_retry")]
+public class ROM_PollAndRetry(
+    WorkflowDefinitionBuilder<ROM_PollAndRetry, RomPollAndRetryInput, RomPollAndRetryOutput> builder
+) : Workflow<ROM_PollAndRetry, RomPollAndRetryInput, RomPollAndRetryOutput>(builder)
+{
+    public required SignalWait WaitForRomOrderCompletion { get; set; }
+    public required ROM_CheckResourceStatus.Handler VerifyRomResources { get; set; }
+
+    public override void BuildDefinition()
+    {
+        _builder.AddTask(
+            wf => wf.WaitForRomOrderCompletion,
+            wf => new SignalWaitInput
+            {
+                // Platform sends this signal key when the ROM order completes
+                SignalKey = $"{Constants.RomOrderCompletionSignalKeyPrefix}:{wf.Input.RomOrderId}",
+            }
+        );
+        _builder.AddTask(
+            wf => wf.VerifyRomResources,
+            wf => new() { RomOrderId = wf.Input.RomOrderId, ExpectedStatus = wf.Input.ExpectedStatus }
+        );
+        _builder.SetOutput(wf => new()
+        {
+            ResourceId = wf.VerifyRomResources.Output.ResourceId,
+            ResourceIds = wf.VerifyRomResources.Output.ResourceIds,
+            Completed = wf.VerifyRomResources.Output.Completed,
+        });
+    }
+}
+```
+
+`RomOrderCompletionSignalKeyPrefix = "rom_order"` — define this as a constant and add `AddConductorSharpPatterns()` to the DI setup.
+
+**3. `ROM_CheckResourceStatus` worker** — reads inventory resources associated with the order:
+
+```csharp
+// Queries IResourceInventoryManagement4ApiClient.ListResourcesAsync with
+// RelatedResourceOrderItemResourceOrderId = [romOrderId] per order item.
+// Returns ResourceIds of resources matching the expected status.
+```
+
+**4. Read attributes worker** — after the poll, read characteristics from inventory using the `ResourceId`:
+
+```csharp
+var resource = await rimClient.GetResourceAsync(request.ResourceId, cancellationToken);
+var proxy = resource.ToEntityProxy<MyResourceEntityProxy>(specification);
+// Read proxy properties — output characteristics are in inventory, not in the order
+```
+
+### SOM Fulfillment Workflow Structure
+
+Chain multiple ROM orders sequentially in the SOM workflow:
+
+```
+TriggerA → ROM_PollAndRetry → ReadAttributesA → TriggerB → ROM_PollAndRetry → ... → RetrieveOutputAttributes
+```
+
+Each `ROM_PollAndRetry` is a sub-workflow property typed as `ROM_PollAndRetry` — multiple instances are allowed; ConductorSharp uses the property name as the task reference name.
 
 ### Entity Proxy for TMF Characteristics
 
 Generated entity proxies (`*EntityProxy`) provide type-safe access to TMF resource characteristics. They work on both inventory entities (`Resource`) and order entities (`ResourceRefOrValue`). Setting a proxy property writes directly to the entity's `ResourceCharacteristic` list in-place.
 
 ```csharp
-// Set characteristics on a new resource for an order
+// Set characteristics on a new resource for an order (order entity)
 var resource = new ResourceRefOrValue { ... };
 var proxy = resource.ToEntityProxy<MyResourceEntityProxy>(specification);
 proxy.Name = "value";   // writes to resource.ResourceCharacteristic
 
-// Read characteristics from a completed order item
-var outputProxy = completedOrderItem.Resource.ToEntityProxy<MyResourceEntityProxy>(specification);
+// Read characteristics from a resource inventory entity (after ROM_PollAndRetry)
+var inventoryResource = await rimClient.GetResourceAsync(resourceId, cancellationToken);
+var outputProxy = inventoryResource.ToEntityProxy<MyResourceEntityProxy>(specification);
 var value = outputProxy.Name;
 ```
+
+Both `ResourceRefOrValue` (order) and `Resource` (inventory) have a `ToEntityProxy<T>` extension method generated in `EntityProxyFactory`. Output characteristics come from inventory (read via `IResourceInventoryManagement4ApiClient`), **not** from the order item — the platform writes output attributes to the inventory resource upon order completion.
 
 **Characteristic type coercion:** Output IDs that are semantically `int` (e.g. `CustomerID`) are stored as `string` in TMF characteristics. Always parse with `InvariantCulture`:
 
@@ -782,9 +827,130 @@ Do not create a Conductor worker task solely to perform a simple inline computat
 inputProxy.SimultaneousCalls = request.MaxSimultaneousCalls * SimultaneousCallsMultiplier;
 ```
 
+### Cross-Cluster Constraint
+
+`SignalWait` requires SOM and ROM to connect to the **same Conductor server**. If SOM and ROM run on separate K8s clusters with separate Conductor instances, the `rom_order:{RomOrderId}` signal sent by ROM's Conductor never reaches SOM's waiting task — the `ROM_PollAndRetry` sub-workflow will hang indefinitely.
+
+| Option | Mechanism | Notes |
+|---|---|---|
+| **A — Poll TMF652** | SOM periodically calls `GET /resourceOrder/{id}` until terminal state, then reads inventory via TMF639 | Order state is authoritative; requires `WaitSeconds` + retry loop |
+| **B — Poll TMF639** | SOM periodically queries resource inventory until resource appears with expected status | Infers completion from inventory state rather than order state |
+| **C — Shared Conductor** | Single Conductor server accessible from both clusters | No code changes; operational complexity shifts to infrastructure |
+
+> **⚠ Verify topology before implementing fulfillment:** If SOM and ROM are on separate clusters, choose an alternative and update the sub-workflow design before writing any fulfillment code.
+
+## Integration Testing
+
+Integration tests submit workflows to a **real Conductor server** running in Docker (via Testcontainers). There are no mocks for workflow execution.
+
+### Infrastructure
+
+Create a thin factory subclass — no overrides needed:
+
+```csharp
+public sealed class MyIntegrationTestFactory : IntegrationTestFactory<Program> { }
+```
+
+Wire it up as an xUnit collection fixture with parallelisation disabled:
+
+```csharp
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class IntegrationTestCollection : ICollectionFixture<MyIntegrationTestFactory> {
+    public const string Name = "Integration";
+}
+```
+
+`IntegrationTestFactory<TProgram>` spins up (via Testcontainers):
+- Conductor server (with Redis backend and PostgreSQL)
+- PostgreSQL database
+- Redis
+- All TMF-based domain microservices (service/resource catalog, ordering, inventory, party, geographic site/address management)
+
+The application under test (`Program`) is started via `WebApplicationFactory<TProgram>` with its configuration pointing at the containers. Authentication is replaced with a no-op test handler.
+
+### Running a Workflow
+
+```csharp
+[Collection(IntegrationTestCollection.Name)]
+public class MyWorkflowTests(MyIntegrationTestFactory integrationTestFactory) {
+    [Fact]
+    public async Task MyWorkflow_Should_Complete() {
+        SimpleWorkflowStarter<Program> workflowStarter = new(integrationTestFactory);
+
+        var workflow = await workflowStarter.RunWorkflow(
+            new StartWorkflowRequest {
+                Name = "my_workflow_name",
+                Input = new MyWorkflowInput { /* ... */ }.ToConductorDictionary()
+            },
+            null,    // optional: Func<Workflow, string> to assert a specific output value on completion
+            false    // expectFailure: set true when the workflow is expected to fail
+        );
+    }
+}
+```
+
+`RunWorkflow` starts the workflow on Conductor, then polls `GetExecutionStatusAsync` every second until it reaches a terminal state. `ToConductorDictionary()` serialises the input object to the Conductor-compatible dictionary format (snake_case keys, Newtonsoft serialisation).
+
+### Assertion Styles
+
+**Style 1 — Output string search** (`using Shared.TestUtilities.Extensions`):
+
+Recursively searches all task `OutputData` (including nested dicts, arrays, and `JsonElement`) for an exact string match. Use when testing that a specific value was produced anywhere in the workflow.
+
+```csharp
+// Passes if any task output contains the exact string "ABCDÉ"
+workflow.ShouldContainOutputString("ABCDÉ", "Expected upper-path output.");
+
+// Passes if NO task output contains the string
+workflow.ShouldNotContainOutputString("abcdé", "Lower-path output should not exist.");
+
+// Returns the matching Task, or null — useful for further assertions
+var task = workflow.FindTaskWithOutputString("some_value");
+
+// Dumps all tasks as a formatted string for manual debugging (also included in failure messages)
+string dump = workflow.DumpTasks();
+// → "- ref='task_ref', def='task_def', status='COMPLETED', output={...}"
+```
+
+Failure messages automatically include a `DumpTasks()` dump, showing ref name, def name, status, and output (truncated at 800 chars) for every task.
+
+**Style 2 — Exact output + task sequence** (Shouldly on workflow properties):
+
+Use when the workflow contract (output shape and task order) is what matters, not specific string values.
+
+```csharp
+// Assert the workflow's final output matches exactly
+workflow.Output.ShouldBe(new MyWorkflowOutput { /* ... */ }.ToConductorDictionary());
+
+// Assert the exact sequence of task definition names (order matters)
+workflow.Tasks.Select(t => t.TaskDefName).ShouldBe([
+    "my_first_task",
+    "my_second_task",
+]);
+```
+
+**Style 3 — Failed workflow error extraction**:
+
+When `expectFailure: true`, extract structured error messages from the failed task or workflow output:
+
+```csharp
+var workflow = await workflowStarter.RunWorkflow(request, null, expectFailure: true);
+var errors = workflow.ExtractErrorMessagesFromFailedWorkflow();
+// Extracts from: failed task's output_data["error_message"], output_data["errors"][],
+// or output_data["response"]["errors"][]
+```
+
+### FakeEngine (TMF Order Simulation)
+
+For workflows that interact with TMF service/resource orders, `IntegrationTestFactory` starts a `FakeEngine` background worker. It polls pending service and resource orders every second and auto-completes them (creating inventory entries for `Add` actions, linking existing entities for `Modify`/`Delete`). This unblocks workflows that wait on order completion without needing a real order management engine.
+
+`FakeEngine` is only relevant when your workflow submits TMF orders. Simple workflows (like a `HelloWorldWorkflow`) don't need it and it runs transparently in the background.
+
 ## Known Limitations
 
 - Conductor **events** are not supported by the library
 - `DoWhileTaskModel` provides no strongly typed output (`NoOutput`)
 - `LambdaTaskModel` output is accessed via `Output.Result.Property` (extra `.Result` level)
 - Dictionary indexing on arbitrary types (non-`Dictionary<,>`) is not supported in expressions
+- **`Nullable<T>.Value` access in expression-tree lambdas does not translate.** The visitor emits a fictitious path (e.g. `${task.output.field.value}`) that resolves to `default(T)` at runtime — *no compile error, silent data corruption*. If a downstream task's `Request` field is non-nullable but the upstream `Response` is `T?`, **don't** bridge with `!.Value` in the workflow expression. Instead, propagate the nullable type into the `Request` (e.g. `int?` end-to-end) and add a defensive null check in the handler. The same applies to `GetValueOrDefault()` and other method calls; only plain property chaining works.
+- **Switch task case values are JSON strings.** The `SwitchCaseValue` expression must evaluate to a string at runtime, and `DecisionCases<>` keys are strings. The discriminator field on the source `Response` should therefore be typed as `string` (with `const string` values for the cases) or as an `enum` (with `[nameof(EnumValue)]` keys). A `bool` field would technically serialize to `"true"`/`"false"` but is non-idiomatic and couples the workflow to .NET's bool serialization — prefer explicit `string` constants.

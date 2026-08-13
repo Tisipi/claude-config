@@ -52,6 +52,7 @@
 - Generic type parameters use `T`, `TKey`, `TValue`, etc. (not `T1`, `T2`)
 - Private/readonly fields use `_camelCase` prefix
 - Constants use `PascalCase` (not SCREAMING_SNAKE_CASE)
+- **Methods must use block bodies** (`{ return ...; }`), never expression-body syntax (`=>`). IDE0022 is enforced.
 
 ## Code Organization (C# Specific)
 - **One public class per file** (exceptions: nested types, extension methods)
