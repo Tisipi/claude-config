@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Editor swap/backup files
+*.swp
+*.swo
+*~
+
+# VS Code (JetBrains .idea/ is tracked selectively via .idea/.gitignore)
+.vscode/
+
+# .NET / Rider build output (safety net in case a scratch project is added)
+bin/
+obj/
+*.user
+.vs/
+*.iml
