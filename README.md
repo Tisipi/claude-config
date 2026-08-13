@@ -240,7 +240,7 @@ brew install ast-grep
 npm install -g @ast-grep/cli
 
 # Linux (Debian/Ubuntu)
-curl -LSs https://github.com/ast-grep/ast-grep/releases/download/0.25.3/ast-grep-x86_64-unknown-linux-gnu.tar.gz | tar xz -C /usr/local/bin
+curl -LSs https://github.com/ast-grep/ast-grep/releases/latest/download/app-x86_64-unknown-linux-gnu.zip -o /tmp/ast-grep.zip && unzip -o /tmp/ast-grep.zip -d /usr/local/bin
 
 # Windows (Chocolatey)
 choco install ast-grep
