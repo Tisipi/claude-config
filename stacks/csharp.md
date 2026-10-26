@@ -6,8 +6,7 @@ Targets .NET 10 / C# 14. For general principles (TDD, error handling, comments, 
 
 1. **The existing repo wins** over this file: `.editorconfig`, `Directory.Build.props`, analyzer config and surrounding code. Never restructure an existing solution without permission.
 2. **Best practice is the baseline** for everything the repo doesn't decide, and for greenfield or large projects.
-3. Two small reference projects (ConductorSharp workflow hosts + API client libraries) shaped the "**Observed**" notes. They are *not* the source of truth: where they contradict best practice, the contradiction is listed in [Reference Projects vs Best Practice](#reference-projects-vs-best-practice) instead of being silently adopted.
-4. **[enforced]** = produced as a build warning by the reference projects' shared code-style globalconfig. Treat as mandatory in repos that have it.
+3. **[enforced]** = produced as a build warning by a shared code-style config (analyzer package or `.editorconfig`). Treat as mandatory in repos that have it.
 
 ## Solution & Build Setup
 
@@ -16,10 +15,10 @@ Targets .NET 10 / C# 14. For general principles (TDD, error handling, comments, 
 - Pin to stable versions; no floating versions (`*`) in production. Audit regularly: `dotnet list package --vulnerable --include-transitive`, `dotnet list package --outdated`
 - Use `.csproj` SDK-style projects; target specific frameworks (.NET 10+), not broad compatibility. Deterministic builds (`ContinuousIntegrationBuild=true` in CI)
 - Solution format `.slnx` where the tooling supports it
-- `.editorconfig` + analyzers define style. **Indentation and line endings differ per repo** (tabs + CRLF in one reference repo, spaces + LF in another): read `.editorconfig`, never assume
+- `.editorconfig` + analyzers define style. Default (Microsoft convention): four spaces, no tabs. Indentation and line endings of the source files can differ per repo (tabs/CRLF and spaces/LF both occur) and are set in `.editorconfig` (line endings often also in `.gitattributes`): read them, never assume
 - Shared style can ship as an analyzer NuGet package with a `.globalconfig` (`PrivateAssets="all"`); don't copy its rules into the repo
-- Every `NoWarn` entry gets a reason comment. Extend with `$(NoWarn);X`. Avoid `#pragma warning disable`; if unavoidable, scope it tightly and justify. Sonar: `// NOSONAR: <reason>` or an `S####` `NoWarn` entry with reason
-- `TreatWarningsAsErrors`: best practice is **on** in CI. A repo may have it off while refactoring (see deviations); don't flip it in an existing repo without permission, but never add new warnings
+- Every `NoWarn` entry gets a reason comment, and design/performance rules (e.g. CA1848, CA1852) are not suppressed just for convenience. Extend with `$(NoWarn);X`. Avoid `#pragma warning disable`; if unavoidable, scope it tightly and justify. Sonar: `// NOSONAR: <reason>` or an `S####` `NoWarn` entry with reason
+- `TreatWarningsAsErrors`: best practice is **on** in CI. A repo may have it off while refactoring; don't flip it in an existing repo without permission, but never add new warnings
 - `InternalsVisibleTo` in the csproj: `<InternalsVisibleTo Include="Foo.Tests"/>`
 - Generated code (`Generated/` folders) is never edited by hand; change the source spec and regenerate
 - Commands: `dotnet build` (runs analyzers), `dotnet test`, `dotnet test --filter "FullyQualifiedName~Name"`, `dotnet format --verify-no-changes`, `dotnet run --project ./src/X`. There is no `dotnet analyze`
@@ -34,8 +33,8 @@ Targets .NET 10 / C# 14. For general principles (TDD, error handling, comments, 
 - Explicit accessibility on every non-interface member
 - **Methods use block bodies** (`{ return ...; }`); expression bodies only for properties, accessors, indexers, lambdas. This is a team rule (IDE0022) stricter than Microsoft's default
 - Top-level statements for console apps and `Program.cs`
-- Max line length 120
-- Use `var` for locals (the shared config enforces it everywhere); target-typed `new()` where the type is apparent
+- Line length: follow the repo (120 is common); Microsoft's 65 applies only to their documentation samples
+- `var` when the type is apparent from the right-hand side (`new`, cast, literal), explicit type otherwise (Microsoft convention; also an explicit type for `foreach` variables). Some repos enforce `var` everywhere via `.editorconfig`: then follow the repo. Target-typed `new()` where the type is apparent
 - Mark non-capturing lambdas and local functions `static` **[enforced]**
 - Use `string`/`int` keywords, not `String`/`Int32`; no `this.` qualification; discard `_` for unused values
 
@@ -56,7 +55,7 @@ Verified on SDK 10.0.101.
 - **C# 14**: `field` keyword (`set => field = value.Trim();`), null-conditional assignment (`p?.Name = "x";`), extension members (`extension(string s) { public bool IsShouty => ...; }`), unbound generic `nameof(List<>)`. Use when they remove boilerplate; don't mix with older styles in one file without reason. Classic `this` extension methods stay fine
 - `System.Threading.Lock` instead of `lock (object)` for sync sections **[enforced]**
 - `IAsyncEnumerable<T>` + `await foreach` (C# 8) for streaming; don't materialise large sets first
-- Raw string literals (`"""`) for multi-line JSON/SQL; `@"..."` for paths
+- Prefer raw string literals (`"""`) over escape sequences and verbatim strings, especially for multi-line JSON/SQL
 
 ### Immutability
 - Prefer records and `init`-only properties; make fields `readonly`
@@ -103,7 +102,7 @@ Verified on SDK 10.0.101.
 - Cached async values in a singleton (e.g. auth token): check without lock → acquire → **re-check** → refresh → release; provide `Invalidate()` for server rejection
 - Parallel I/O: `Task.WhenAll`, `Parallel.ForEachAsync` with `MaxDegreeOfParallelism`; no unbounded fan-out
 - Retry/poll intervals come from options so tests can set `TimeSpan.Zero`
-- **Observed:** background jobs use `BackgroundService` + bounded `Channel<T>` (`SingleReader = true`, `FullMode = Wait`), a new scope per job (`await using var scope = scopeFactory.CreateAsyncScope();`), and final state persisted in `finally` with `CancellationToken.None`
+- Background jobs: `BackgroundService` reading a bounded `Channel<T>` (`SingleReader = true`, `FullMode = Wait`), a new scope per job (`await using var scope = scopeFactory.CreateAsyncScope();`), and the final job state persisted in `finally` with `CancellationToken.None`
 
 ## Dependency Injection, Configuration, Options
 
@@ -116,12 +115,11 @@ Verified on SDK 10.0.101.
 - Interfaces `public`; implementations default to `internal sealed`
 - **HttpClient**: always via `IHttpClientFactory`/typed clients (`AddHttpClient<IFoo, Foo>()`), never `new HttpClient()` per call. Add resilience with `Microsoft.Extensions.Http.Resilience` (retry with backoff + jitter, circuit breaker, timeouts); retry only transient failures and honour `Retry-After`. Redact secret headers in logs (`.RedactLoggedHeaders([...])`)
 - Minimal APIs: group routes in `Map<Feature>Api(this IEndpointRouteBuilder)`, private static handlers returning `IResult`, `.Produces<T>(StatusCodes.StatusNNN)` per outcome, translate domain exceptions to 4xx in the handler, `MapHealthChecks("/health")`
-- **Observed:**
-  - Required-config helpers (`RequiredString/Int/Url`) that also reject unreplaced `<PLACEHOLDER>` values and non-absolute URLs
-  - Shared `WebApplicationBuilder` extension for logging/health/pipelines so several hosts stay identical
-  - Bearer-token `DelegatingHandler` with a separate named `HttpClient` for the token request and cache invalidation on 401
-  - Resilience helpers as extension methods on `ResiliencePipelineBuilder<HttpResponseMessage>`; pass client name via `ResilienceContextPool.Shared.Get(ct)` + `request.SetResilienceContext(ctx)`, `Return` in `finally`
-  - Pre-serialise request bodies to `StringContent` when the API needs `Content-Length` (`JsonContent` streams chunked); keep `JsonSerializerOptions` in `static readonly` fields
+- Required-config helpers (`RequiredString/Int/Url`) that also reject unreplaced `<PLACEHOLDER>` values and non-absolute URLs, so bad deployments fail at startup with the key name in the message
+- Put shared host setup (logging, health checks, pipelines) in one `WebApplicationBuilder` extension so several hosts stay identical
+- Outgoing auth: a `DelegatingHandler` that attaches a cached bearer token, a separate named `HttpClient` for the token request (so the handler can't call itself), cache invalidation on 401
+- Resilience helpers as extension methods on `ResiliencePipelineBuilder<HttpResponseMessage>`; pass context such as the client name via `ResilienceContextPool.Shared.Get(ct)` + `request.SetResilienceContext(ctx)` and `Return` it in `finally`
+- Pre-serialise request bodies to `StringContent` when the API needs an explicit `Content-Length` (`JsonContent` streams chunked); keep `JsonSerializerOptions` in `static readonly` fields
 
 ## Errors & Exceptions
 
@@ -134,14 +132,14 @@ General principles are in CLAUDE.md. C#-specific:
 - Exception messages include identifying context (endpoint, id, attempt, last status)
 - Wrap transport failures in the boundary exception, log first, preserve the inner exception. Map HTTP status → exception in one `switch` expression
 - Map exceptions → error codes in exactly one place, by **type**, never by message text
-- **Result pattern** (e.g. `Result<T>`/discriminated unions) for expected, recoverable failures; exceptions for the exceptional. The reference projects use nullable returns instead; adopt Result in a project only when the codebase already does or you ask
+- **Result pattern** (e.g. `Result<T>`/discriminated unions) for expected, recoverable failures; exceptions for the exceptional. Nullable returns are the simpler default; adopt a Result type only where the codebase already uses one or after asking
 
 ## Logging
 
 - `Microsoft.Extensions.Logging` via DI (`ILogger<T>`); levels used correctly: Debug < Information < Warning < Error < Critical
 - **Structured** templates with named PascalCase placeholders (`{Endpoint}`, `{JobId}`), never string interpolation in the template; pass the `Exception` as its own parameter
-- Preferred for new code: `[LoggerMessage]` source generation in an `internal static partial class <Feature>Log` (extension methods on `ILogger`). Some repos log inline with a short tag prefix (`"[Tag] ..."`): in such a repo match it and keep one style per repo
-- Guard expensive arguments with `logger.IsEnabled(LogLevel.Debug)`
+- Preferred for new code: `[LoggerMessage]` source generation in an `internal static partial class <Feature>Log` (extension methods on `ILogger`). It avoids boxing, parses the template once, checks the level itself and validates templates at compile time (Microsoft: do not suppress CA1848). In a repo that already logs inline (e.g. with a `"[Tag] ..."` prefix) keep that style: one style per repo
+- Pass raw values to the log method or template; never pre-build strings, interpolate or create objects in log arguments (CA1873 flags this, because arguments are evaluated even when the level is off). Fix with `[LoggerMessage]` or an `if (logger.IsEnabled(LogLevel.Debug))` guard. Neither is needed when the arguments are trivially cheap
 - Never log secrets, tokens, PII; redact headers
 - Configure the sink (e.g. Serilog + Seq) once in a shared host extension
 
@@ -158,6 +156,7 @@ General principles are in CLAUDE.md. C#-specific:
 - `AsNoTracking()` for read-only queries; project to DTOs instead of loading graphs; avoid N+1 (`Include`/projection); paginate
 - Migrations in source control; parameterised queries only (no string-built SQL)
 - Keep entities (domain) separate from DTOs (API contracts)
+- Test against the real database provider (Testcontainers); in-memory SQLite only when no provider-specific behaviour is involved
 
 ## Documentation & Comments
 
@@ -183,15 +182,16 @@ General rules (TDD, unit + integration + e2e, real data over mocks) are in CLAUD
 
 ### Stack and principles
 - **xUnit** (v3 for new projects), **Shouldly** (assertion-first), **WireMock.Net** (in-process) for HTTP dependencies, **Testcontainers** for real databases/brokers/servers
-- Mocking library: match the project. **Greenfield default: NSubstitute** (clearer API). Reference projects use Moq, see deviations
+- Mocking library: match the project. NSubstitute and Moq are both fine; greenfield default is NSubstitute (clearer API)
 - Prefer, in order: real thing (WireMock/Testcontainers) → hand-written fake → mock. Mock only what is external to the class under test. Never mock the project's own HTTP client abstraction when a WireMock test can exercise the real one
+- Prefer strongly typed builders and helpers over reflection-based test helpers
 - Assert on outcomes and captured arguments; avoid interaction call-counting (`Verify(..., Times.X)`) unless the interaction *is* the behaviour
 - AAA (Arrange → Act → Assert); one behaviour per test; tests independent and parallel-safe; deterministic (no real clocks, sleeps or network)
 - Meaningful assertion messages where the failure isn't self-explanatory: `result.ShouldBe(expected, "user should be retrieved")`
 - Critical paths: happy path plus error cases (auth failure, 404, validation error, timeout, 5xx/resilience). Authorization logic gets exhaustive coverage
 
 ### Organisation
-- Test project per production project: `Foo` ↔ `Foo.Tests`, mirroring the folder tree. Separate **unit** and **integration** projects (`Foo.Tests`, `Foo.IntegrationTests`) in large solutions so unit tests run without Docker; small solutions may use `Unit/` and `Integration/` folders in one project (as the reference projects do)
+- Test project per production project: `Foo` ↔ `Foo.Tests`, mirroring the folder tree. Separate **unit** and **integration** projects (`Foo.Tests`, `Foo.IntegrationTests`) in large solutions so unit tests run without Docker; small solutions may use `Unit/` and `Integration/` folders in one project
 - `public sealed class <ClassName>Tests`; split big SUTs by concern (`...ResilienceTests`, `...EdgeCaseTests`)
 - File naming `[ClassName]Tests.cs`; method naming `Method_Condition_ExpectedResult`. Snake_case sentences and `Should_...` also occur: follow the file, never mix within one
 - Categorise with `[Trait("Category", "Integration")]` so CI can filter
@@ -205,7 +205,7 @@ General rules (TDD, unit + integration + e2e, real data over mocks) are in CLAUD
 - `[Theory]` + `[InlineData]` for value variations; `[MemberData]` for complex data
 - `Should.ThrowAsync<XException>(() => sut.DoAsync(...))`, then assert on exception properties
 
-### Patterns that work in the reference projects
+### Patterns that work
 - Build the SUT directly: `Options.Create(new FooOptions { ... })`, `NullLogger<Foo>.Instance`
 - WireMock stubs as plain WireMock JSON (`mappings/` + `__files/`) in `src/Wiremocks` (own `Dockerfile` + README), linked into test output (`<Content Include="..\..\src\Wiremocks\**\*"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><Link>Wiremock\%(RecursiveDir)%(Filename)%(Extension)</Link></Content>`) so the same stubs serve local development and tests; the folder-name constant must match the loader's
 - Magic IDs that select stub behaviour are `public const string` on the fixture; WireMock **scenarios** model stateful sequences (call `ResetScenarios()` between tests)
@@ -239,38 +239,10 @@ tests/
 - Entities (domain) separate from DTOs (contracts)
 - `[ExcludeFromCodeCoverage]` only for wiring with no logic (log classes, composition roots). Never on code with branches
 
-### Observed in the reference projects
+### Typical solution layout
 - Naming `{Company}.{Team}.{Product}.{Part}`; `src/` and `test/` mirror each other
 - Typical split: `Application` (host), `Domain` (domain/generated types), `Commons` (shared constants/hosting/options, no logic), `<Thing>Client` (standalone library with no project references to the others; own README/SPEC, options, models, exceptions, tests), separate deployable tools as their own projects
-- Several independently deployable hosts (e.g. one per orchestration tier) can share one `Commons` project; each has its own `Dockerfile`, `appsettings*.json`, launch profile
-- Library layout: `Models/`, `Options/`, `Exceptions/`, public interface, internal implementation, `ServiceCollectionExtensions.cs` at the root. Application layout: feature folder first, role second (`Feature/Action/Workers`)
+- Several independently deployable hosts (e.g. one per responsibility) can share one `Commons` project; each has its own `Dockerfile`, `appsettings*.json`, launch profile
+- Library layout: `Models/`, `Options/`, `Exceptions/`, public interface, internal implementation, `ServiceCollectionExtensions.cs` at the root. Application layout: feature folder first, role second (`Feature/Action/Handlers`)
 - For `WebApplicationFactory<T>`-style factories expose an empty `public sealed class <Host>ProgramMarker;` per host (with `// NOSONAR: <reason>`)
 - Repo root: `docker-compose.yml` (hosts + stub server), `scripts/`, `docs/`
-
-## Reference Projects vs Best Practice
-
-Seen in the two reference projects and **not** to be copied into new or large projects. Respect them when working inside those repos, and don't "fix" them unprompted (log as issues per the Bug Discovery Protocol).
-
-| Observed in reference projects | Best practice | Guidance |
-|---|---|---|
-| `TreatWarningsAsErrors=false` ("while refactoring") | Warnings as errors in CI | Keep off only where the repo does; add no new warnings |
-| Suppressed rules (CA1848 LoggerMessage, CA1852 seal, CA1812, CA1860) | Fix or keep enabled | Suppression is reasoned in the repo; new code should still use `[LoggerMessage]` and `sealed` |
-| Moq as mocking library (plus `Verify`/`Times` counting in some tests) | NSubstitute preferred for clarity; state-based assertions | Match the repo; greenfield uses NSubstitute |
-| Inline `logger.LogX("[Tag] ...")` calls in one repo | `[LoggerMessage]` source generation | Match the repo's style; new repos use source generation |
-| `DateTimeOffset.UtcNow` called directly (no `TimeProvider`) | Inject `TimeProvider`/clock for testability | Use `TimeProvider` in new code |
-| Classifying exceptions by **message text** ("timed out", "characteristic") | Classify by type/typed error codes | Don't copy; prefer typed exceptions |
-| Broad `catch (Exception)` in 13+ places | Only at top-level boundaries | Keep to workers/processors that log and record failure |
-| Four copy-pasted job-queue classes | Generic `JobQueue<T>` | DRY; don't replicate |
-| `[ExcludeFromCodeCoverage]` on a type containing logic (extension methods with branches) and on 38 files | Only on pure wiring | Never on code with logic |
-| In-memory SQLite to test EF code written for PostgreSQL | Test against the real provider (Testcontainers) | SQLite only when no provider-specific behaviour is involved |
-| Reflection-heavy test helpers (`Activator.CreateInstance`, `GetMethod`) | Strongly typed helpers | Brittle: prefer typed test builders |
-| Commented-out code left in a test base class | Delete dead code | Don't leave it |
-| `CancellationToken.None` in older tests | `TestContext.Current.CancellationToken` (xUnit v3) | Use the context token |
-| `ValidateOnStart()` omitted in one registration (documented workaround) | Always validate options on start | Restore when the blocker is fixed |
-| Public non-sealed option and client classes | `sealed`/`internal` by default | Seal; only open what is designed for it |
-| Mutable `{ get; set; }` option classes | Immutable types | Acceptable for config binding only |
-| Synchronous `SemaphoreSlim.Wait()` in a method of an async class | Async all the way | Prefer `WaitAsync` or a non-blocking design |
-| The same WireMock loader duplicated across repos | Shared package | Candidate for extraction when a third repo needs it |
-| Three test-naming styles | One style per project | Follow the file; don't mix |
-| Docs claimed Testcontainers but tests used in-process WireMock | Docs match reality | Verify docs against code |
-| Expression-bodied methods banned | Microsoft default allows them | Team rule, honour it in those repos; elsewhere follow `.editorconfig` |

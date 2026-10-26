@@ -253,6 +253,54 @@ sg --version
 
 Use `sg` for finding patterns, refactoring code, and understanding code structure across projects.
 
+## Safety Guards
+
+Claude never commits or pushes: the user does all version control. `CLAUDE.md` states the rule, but instructions are advisory, so it is enforced in three layers:
+
+| Layer | Where | What it does |
+|---|---|---|
+| Deny rules | `~/.claude/settings.json` | Block `git commit` (incl. `--amend`), `push`, `tag`, `rebase`, `merge`, `cherry-pick`, `revert`, `gh pr create`, `gh pr merge` |
+| Ask rules | `~/.claude/settings.json` | Prompt before `git reset --hard`, `clean`, `checkout --`, `restore`, `branch -D`, `stash drop/clear` (possible data loss) |
+| PreToolUse hook | `hooks/block_git_publish.py` | Parses the Bash command and blocks the same git/gh operations in any form |
+
+Why the hook: deny rules match the literal command text. Per the Claude Code docs they do not catch `git -C . push`, `git -c k=v push` or `git 'push'`, and `git -C <dir>` is a form Claude uses when working across directories. The hook also sees through `&&`, `;`, `$(...)`, `/usr/bin/git`, `sudo`, `xargs`, `bash -c "..."` and heredocs fed to a shell. Heredocs that are plain data (`cat <<EOF`, `python3 - <<EOF`) are ignored, so documentation text mentioning git commands is not blocked. Read-only git (`status`, `diff`, `log`) is untouched.
+
+Limit: it inspects the command text only. A script that runs `git commit` internally is not caught.
+
+`setup.sh` links `hooks/` to `~/.claude/hooks`. `settings.json` holds personal settings and is not tracked, so add this to it by hand on each machine (merge with existing keys):
+
+```json
+{
+  "permissions": {
+    "deny": [
+      "Bash(git commit *)", "Bash(git push *)", "Bash(git tag *)", "Bash(git rebase *)",
+      "Bash(git merge *)", "Bash(git cherry-pick *)", "Bash(git revert *)",
+      "Bash(gh pr create *)", "Bash(gh pr merge *)"
+    ],
+    "ask": [
+      "Bash(git reset --hard *)", "Bash(git clean *)", "Bash(git checkout -- *)", "Bash(git restore *)",
+      "Bash(git branch -D *)", "Bash(git stash drop *)", "Bash(git stash clear *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "python3 -I ~/.claude/hooks/block_git_publish.py" }]
+      }
+    ]
+  }
+}
+```
+
+Tests (stdlib only), run from the repo root:
+
+```bash
+python3 -m unittest discover -s hooks -v
+```
+
+Change the hook only together with its tests. To verify the guard in a live session, run `git -C . commit --dry-run`: it must be blocked.
+
 ## Adding New Stacks
 
 1. Create a new file in `stacks/` (e.g., `typescript.md`)
@@ -268,6 +316,12 @@ Use `sg` for finding patterns, refactoring code, and understanding code structur
 - https://github.com/harperreed/dotfiles/blob/master/.claude/CLAUDE.md
 - https://github.com/obra/dotfiles/blob/main/.claude/CLAUDE.md
 
+Claude Code documentation (consulted 2026-10-26):
+
+- https://code.claude.com/docs/en/memory (CLAUDE.md, `.claude/rules/`, auto memory)
+- https://code.claude.com/docs/en/best-practices (writing an effective CLAUDE.md, verification, hooks, skills)
+- https://code.claude.com/docs/en/skills (SKILL.md format, commands merged into skills)
+
 
 ## Notes and Things to do
 
@@ -275,3 +329,14 @@ Plugins.
 Skills.   
 Pre-commit hooks.   
 Block dangerous git commands.   
+
+**TODO: update this README once the modernisation is done.** It is stale in at least these places:
+
+- Structure and Usage: `commands/` and `stacks/` will become skills and rules (see the modernisation plan)
+- `setup.sh` description: it must also link the new skills/rules folders
+- Greenfield workflow: names outdated models and says `/continue` commits, which contradicts the "never commit or push" rule in `CLAUDE.md`
+- "Key Principles" says "Commit often" (same contradiction)
+- "Adding New Stacks" ends with "Commit and push"
+- "Targeted Review Workflows" mentions `/review-area`, which does not exist
+- Structure tree: add the `hooks/` folder (the git guard itself is documented under Safety Guards)
+- Sources: keep the Claude documentation list above in sync with what was actually consulted

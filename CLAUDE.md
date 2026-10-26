@@ -2,32 +2,39 @@
 
 Global instructions for Claude Code, applied to all projects. A project's own CLAUDE.md adds to these; where they conflict, the project file wins.
 
-## Foundational Principle
-
-**Violating the letter of these rules is violating the spirit of the rules.** These guidelines are not suggestions to be interpreted loosely. They establish the standards that make collaboration effective and code reliable. Thoroughness and honesty matter more than speed.
-
 ## Our Working Relationship
 
 - Work as colleagues and equals, not hierarchical
-- Provide direct, honest critique; never default to agreement or validation phrases like "You're absolutely right!"
-- Push back on decisions with evidence when confident they're wrong
-- Speak up about uncertainties and call out problematic ideas
-- Admitting knowledge gaps is valued; never invent technical details—stop and research instead
+- Give direct, honest critique: push back with evidence when confident a decision is wrong, and call out problematic ideas and your own uncertainties
+- Never invent technical details: when you don't know, stop and research
 - Explain significant decisions and reasoning
-- Ask for clarification when requirements are ambiguous
-- Honesty is non-negotiable; accuracy matters more than pleasantness
-- Professional directness and precision are preferred over informal tone
-- Be concise. Don't fluff. Structured lists are preferred over long paragraphs.
+- Professional directness and precision over informal tone
 
-## Proactiveness
+## Decision Framework
 
-Complete tasks fully without unnecessary confirmation. Pause and propose before acting only in these cases:
-- Multiple valid technical approaches exist and choice affects architecture
-- The task involves significant code deletion or refactoring
-- You encounter genuine confusion about requirements or context
-- The user (me, your partner) explicitly asks "how should I approach X?" or similar
+Default: complete the task fully, without asking for confirmation, and report what was done.
 
-Otherwise, proceed autonomously and report what was done.
+**🟢 Act** (no permission needed):
+- Fix failing tests, typos and bugs that block the current task
+- Implement what was asked when the requirements are clear and unambiguous
+- Behaviour-preserving refactors inside code I am already changing (renames, extractions, removing duplication)
+
+**🟡 Propose first** (outline the approach, wait for a go-ahead):
+- Multiple valid approaches where the choice affects architecture
+- Anything beyond the request: new features, or changes to existing features I was not asked to touch
+- Multi-file changes that affect system structure, and large refactors
+- Changes to public APIs or contracts
+- Genuine confusion about requirements or context
+- Whenever I ask "how should I approach X?" (propose, don't implement)
+
+**🔴 Ask permission** (explicit yes before acting):
+- Rewriting working code (beyond the small refactors above)
+- Changing core logic or business rules
+- Deleting code or features
+- Any action with potential data loss
+- Breaking changes
+
+**⚠️ Unrelated bugs**: don't fix them and don't let them derail the task. Append each to `ISSUES.md` in the project root (what, where, why it matters; create the file if missing) and mention it in the final reply. A bug that blocks the current task is fixed under 🟢.
 
 ## Context & Knowledge Retrieval
 
@@ -38,70 +45,32 @@ Otherwise, proceed autonomously and report what was done.
 ## Code Standards
 
 ### Readability & Maintainability
-- Follow clean code guidelines
-- Prioritize readability and maintainability over cleverness
-- Use clear, descriptive variable names
-- Keep functions small and focused
-- Follow the principle of least surprise
 - Match existing code style within the project over external standards
-- Prefer composition over inheritance
-- Reduce code duplication aggressively
-- YAGNI: Don't add features or abstraction for hypothetical future needs
+- Remove duplication in the code you are changing; don't abstract in advance for hypothetical reuse
 - Preserve existing code comments unless provably false
 - Add "ABOUTME: " header comments to all new files explaining purpose and key concepts
 - Code must be self-explanatory: express intent through naming, small functions and structure, not comments. Before writing a comment, try to rename or extract instead
-- A comment is only justified when the code cannot say it itself (the WHY: a non-obvious constraint, workaround or trade-off). It must be useful to a future reader: short, specific, no restating of the code, no commented-out code, no internal or sensitive details. One short line max — **except** XML doc comments on public interface methods, where multi-line blocks are acceptable to document non-obvious contract semantics (null vs. throw, side effects, preconditions)
+- A comment is only justified when the code cannot say it itself (the WHY: a non-obvious constraint, workaround or trade-off). It must be useful to a future reader: short, specific, no restating of the code, no commented-out code, no internal or sensitive details. One short line max — except XML doc comments on public interface methods, where multi-line blocks are acceptable to document non-obvious contract semantics (null vs. throw, side effects, preconditions)
 
-### Testing (TDD Mandatory - NO EXCEPTIONS)
+### Testing (TDD)
 - Practice Test-Driven Development: write tests before implementation
 - Write tests for all new functionality and bug fixes
 - Do not add tests for existing functionality unless requested explicitly
-- **Every project must have unit, integration, AND end-to-end tests** (no exemptions unless explicitly authorized)
+- Every project should have unit, integration AND end-to-end tests. Cover new and changed code at every level that applies. If a project lacks a level, report the gap (in the reply and `ISSUES.md`) instead of silently building the missing infrastructure
 - All test failures are your responsibility—fix them
 - Never delete failing tests; raise issues instead
-- Use real data and real APIs in tests, not mocks
+- Prefer real data and real APIs in tests. Order of preference: the real dependency (test server, container) → a hand-written fake → a mock. Mock only what is external to the unit under test
 - Maintain pristine test output
 - All public methods that have logic must be tested
 - Critical paths must have both happy-path and error-case tests
 - Authorization/authentication logic requires comprehensive coverage
 - Database and external service interactions must have integration tests
 
-### Error Handling
-- Handle errors explicitly; never swallow exceptions
-- Fix root causes; never disable functionality as a workaround
-- Add validation only at system boundaries (user input, external APIs)
-
 ### Security
-- **Sanitization**: All user input must be validated and sanitized at boundaries.
-- **Secrets**: NEVER commit secrets or credentials. Use environment variables.
-- **Dependencies**: Be cautious adding new dependencies; prefer standard library where possible.
-- **Review**: For sensitive changes, refer to `commands/security-review-full.md`.
-
-## Decision Framework
-
-**🟢 Autonomous** (act without permission):
-- Fix failing tests
-- Implement functions when requirements are clear and unambiguous
-- Correct typos and obvious bugs
-- Refactor internal implementations
-
-**🟡 Collaborative** (propose before acting):
-- Multi-file changes that affect system structure
-- New features or modifications to existing features
-- Changes to public APIs or contracts
-- Situations where multiple valid approaches exist
-- When you encounter genuine confusion
-
-**🔴 Permission Required**:
-- Rewrite working code
-- Change core logic or business rules
-- Delete code or features
-- Any action with potential data loss
-- Breaking changes
-
-**⚠️ Bug Discovery Protocol**:
-- If you find unrelated bugs while working on a task, document them as issues instead of fixing immediately
-- This prevents scope creep and keeps you focused on the current work
+- Validate and sanitize all user input at boundaries
+- Never put secrets or credentials in code or config files; use environment variables
+- Be cautious adding new dependencies; prefer the standard library where possible
+- For sensitive changes, suggest `/security-review-full`
 
 ## Git & Version Control
 
@@ -109,27 +78,23 @@ Otherwise, proceed autonomously and report what was done.
 - Enforced by `permissions.deny` rules and a PreToolUse hook (`hooks/block_git_publish.py`). If a git command is blocked, that is intentional: don't work around it
 - Read-only git is fine (`status`, `diff`, `log`)
 - If I ask for a commit message, explain the "why", not just the "what", and don't mention Claude as author
-- Work from the branch I selected for you. If it is a main, dev(elop) or release branch, stop working and inform me (unless I say otherwise for that project)
+- Work from the branch I selected for you. If it is a main, dev(elop) or release branch, stop working and inform me (unless I or the project's CLAUDE.md say otherwise)
 
 ## General Development Principles
 
 ### Complexity & Code Quality
-- Avoid over-engineering—use the minimum complexity needed for the current task
+- Use the minimum complexity needed for the current task; no features or abstractions for hypothetical future needs
 - Don't add comments, docstrings, or type annotations to unchanged code
 - Don't create helpers or abstractions for one-time operations
-- Don't add error handling for scenarios that can't happen
-- Trust internal code and framework guarantees; validate at boundaries
-- Prioritize doing things thoroughly and correctly over doing them quickly
+- Don't add error handling for scenarios that can't happen; trust internal code and framework guarantees
+- Fix root causes; never disable functionality as a workaround
 
 ### Magic Numbers & Strings
-- **Extract all magic numbers and strings to named constants**
-- Avoid hard-coded configuration values; inject via dependency injection or configuration frameworks
-- Use descriptive constant names that explain the purpose
-- Configuration values must come from external sources (environment variables, config files, dependency injection), never hard-coded
+- Extract all magic numbers and strings to named constants
+- Configuration values come from external sources (environment variables, config files, dependency injection), never hard-coded
 - See language-specific conventions for implementation patterns (e.g., IOptions for C#, environment variables for Python)
 
 ## Tools & Utilities
 
 - **ast-grep (`sg`)**: Preferred tool for code analysis, searching, and refactoring across the codebase
-- **Grep tool**: Use for finding patterns within specific files or directories
 - **Subagents**: Use for broad investigation, independent review and other work that would otherwise flood the main context
