@@ -1,256 +1,223 @@
 # C# Development Conventions
 
-## Language & Features
-- Use latest C# features (.NET 10.0+, C# 14+)
-- Enable nullable reference types (`#nullable enable`)
-- Prefer records for DTOs and immutable data
-- Use top-level statements for console apps
-- Use file-scoped namespaces (not nested namespaces)
+Targets .NET 10 / C# 14. For general principles (TDD, error handling, comments, magic numbers) see CLAUDE.md; this file adds the C#-specific detail.
 
-## C# 14 Specific Features
+## How to use this file
 
-### Collection Expressions
-- **Always use collection expressions** for creating lists, arrays, spans: `int[] numbers = [1, 2, 3];`
-- Preferred over `new List<T> { ... }` or `new List<T>()` syntax
-- Works with `List<T>`, `Array`, `Span<T>`, and custom collection types
-- Initialize empty collections: `IList<Item> items = [];` not `new List<Item>()`
-- Example: `var users = [new User("Alice"), new User("Bob")];`
-- Apply consistently across entire codebase to avoid mixing patterns
+1. **The existing repo wins** over this file: `.editorconfig`, `Directory.Build.props`, analyzer config and surrounding code. Never restructure an existing solution without permission.
+2. **Best practice is the baseline** for everything the repo doesn't decide, and for greenfield or large projects.
+3. Two small reference projects (ConductorSharp workflow hosts + API client libraries) shaped the "**Observed**" notes. They are *not* the source of truth: where they contradict best practice, the contradiction is listed in [Reference Projects vs Best Practice](#reference-projects-vs-best-practice) instead of being silently adopted.
+4. **[enforced]** = produced as a build warning by the reference projects' shared code-style globalconfig. Treat as mandatory in repos that have it.
 
-### Primary Constructors
-- Use for concise class initialization when all constructor parameters become properties
-- Example: `public class User(string Name, int Age) { ... }`
-- Reduces boilerplate for DTOs and data classes
-- Avoid when logic is needed in constructor; use traditional constructors instead
+## Solution & Build Setup
 
-### Record Structs
-- Use `record struct` for immutable value types
-- Preferred over regular structs for domain models
-- Example: `public record struct Point(double X, double Y);`
-- Automatically generates equality, hashing, and ToString
+- `Directory.Build.props` holds shared settings once: `TargetFramework`, `LangVersion` latest, `Nullable` enable, `ImplicitUsings` enable, `EnableNETAnalyzers`, `AnalysisLevel` latest, `AnalysisMode` Recommended (or All for libraries), `EnforceCodeStyleInBuild`, `NuGetAuditLevel`
+- **Central Package Management**: versions only in `Directory.Packages.props` (`ManagePackageVersionsCentrally`); `.csproj` uses `<PackageReference Include="X"/>` without `Version`. Shared test-only references go there under `Condition="'$(IsTestProject)' == 'true'"`
+- Pin to stable versions; no floating versions (`*`) in production. Audit regularly: `dotnet list package --vulnerable --include-transitive`, `dotnet list package --outdated`
+- Use `.csproj` SDK-style projects; target specific frameworks (.NET 10+), not broad compatibility. Deterministic builds (`ContinuousIntegrationBuild=true` in CI)
+- Solution format `.slnx` where the tooling supports it
+- `.editorconfig` + analyzers define style. **Indentation and line endings differ per repo** (tabs + CRLF in one reference repo, spaces + LF in another): read `.editorconfig`, never assume
+- Shared style can ship as an analyzer NuGet package with a `.globalconfig` (`PrivateAssets="all"`); don't copy its rules into the repo
+- Every `NoWarn` entry gets a reason comment. Extend with `$(NoWarn);X`. Avoid `#pragma warning disable`; if unavoidable, scope it tightly and justify. Sonar: `// NOSONAR: <reason>` or an `S####` `NoWarn` entry with reason
+- `TreatWarningsAsErrors`: best practice is **on** in CI. A repo may have it off while refactoring (see deviations); don't flip it in an existing repo without permission, but never add new warnings
+- `InternalsVisibleTo` in the csproj: `<InternalsVisibleTo Include="Foo.Tests"/>`
+- Generated code (`Generated/` folders) is never edited by hand; change the source spec and regenerate
+- Commands: `dotnet build` (runs analyzers), `dotnet test`, `dotnet test --filter "FullyQualifiedName~Name"`, `dotnet format --verify-no-changes`, `dotnet run --project ./src/X`. There is no `dotnet analyze`
 
-### Params Collections
-- Use collection expressions with `params`: `void Log(params string[] messages) { ... }`
-- Call with `Log(["msg1", "msg2"])` using collection expression syntax
+## Language & Style
 
-### Discard Operator
-- Use `_` for unused variables to indicate intentional discard
-- Example: `var (name, _) = GetUserData();` if age is not needed
-- Clearer than naming variables `unused`, `temp`, etc.
+### Core rules
+- Nullable reference types enabled; no `#nullable disable` without justification
+- File-scoped namespaces; `using` directives outside the namespace; namespace matches folder
+- Follow Microsoft C# coding conventions. Naming: PascalCase for types, members, constants; camelCase for locals/parameters; `_camelCase` for private fields; `I` prefix on interfaces; generic parameters `T`, `TKey`, `TValue` (not `T1`, `T2`); no SCREAMING_CASE
+- Braces always, even for single-line bodies; Allman style
+- Explicit accessibility on every non-interface member
+- **Methods use block bodies** (`{ return ...; }`); expression bodies only for properties, accessors, indexers, lambdas. This is a team rule (IDE0022) stricter than Microsoft's default
+- Top-level statements for console apps and `Program.cs`
+- Max line length 120
+- Use `var` for locals (the shared config enforces it everywhere); target-typed `new()` where the type is apparent
+- Mark non-capturing lambdas and local functions `static` **[enforced]**
+- Use `string`/`int` keywords, not `String`/`Int32`; no `this.` qualification; discard `_` for unused values
 
-### Async Enumerables
-- Use `IAsyncEnumerable<T>` for streaming data from async sources
-- Pair with `await foreach` for iteration
-- More efficient than loading all data into memory first
-- Example: `await foreach (var item in GetItemsAsync()) { ... }`
+### Class layout
+- **One public type per file** (exceptions: nested types, extension classes, a small interface beside its only implementation, a `[LoggerMessage]` class at the bottom of its file)
+- Member order: fields → properties → constructors → methods → nested types
+- Prefer composition over inheritance. Seal classes unless designed for inheritance
+- Keep methods small and single-purpose; early returns instead of deep nesting
 
-## Style & Naming
-- Follow Microsoft C# coding conventions
-- Use PascalCase for public members, camelCase for private
-- Use file-scoped namespaces
-- Interface names start with `I` prefix (`IRepository`, `IService`)
-- Generic type parameters use `T`, `TKey`, `TValue`, etc. (not `T1`, `T2`)
-- Private/readonly fields use `_camelCase` prefix
-- Constants use `PascalCase` (not SCREAMING_SNAKE_CASE)
-- **Methods must use block bodies** (`{ return ...; }`), never expression-body syntax (`=>`). IDE0022 is enforced.
+### Modern language features
+Verified on SDK 10.0.101.
+- **Collection expressions**: `List<int> x = [];`, `int[] a = [1, 2];`, `[..xs, y]`. They need a target type: `var x = [1, 2];` does **not** compile (CS9176). Use them consistently instead of `new List<T> { }` / `new T[] { }`
+- **Primary constructors**: parameters are *captured*, not properties (only `record`s promote them). Ideal for DI classes. Copy to a field only to transform or cache (`private readonly int _batchSize = options.Value.BatchSize;`). Avoid when the constructor needs logic
+- **Records**: `record`/`sealed record` for immutable DTOs and value-like data; `record struct` for small immutable value types (`public readonly record struct Point(double X, double Y);`); `with` for modified copies
+- **`required` + `init`** for mandatory members; never `= default!` to silence nullable warnings
+- **Pattern matching and switch expressions** over `if` chains and `switch` statements: `is not null`, `is { Length: > 0 } s`, property/relational/list patterns
+- **Params collections** (C# 13): `void Log(params IEnumerable<string> messages)`
+- **C# 14**: `field` keyword (`set => field = value.Trim();`), null-conditional assignment (`p?.Name = "x";`), extension members (`extension(string s) { public bool IsShouty => ...; }`), unbound generic `nameof(List<>)`. Use when they remove boilerplate; don't mix with older styles in one file without reason. Classic `this` extension methods stay fine
+- `System.Threading.Lock` instead of `lock (object)` for sync sections **[enforced]**
+- `IAsyncEnumerable<T>` + `await foreach` (C# 8) for streaming; don't materialise large sets first
+- Raw string literals (`"""`) for multi-line JSON/SQL; `@"..."` for paths
 
-## Code Organization (C# Specific)
-- **One public class per file** (exceptions: nested types, extension methods)
-- **Order class members**: fields → properties → constructors → methods → nested types
-- For general SRP and code organization principles, see CLAUDE.md
+### Immutability
+- Prefer records and `init`-only properties; make fields `readonly`
+- Return `IReadOnlyList<T>`/`IReadOnlyDictionary<K,V>` from public APIs instead of mutable collections
+- Config-bound **options classes** are the exception: usable defaults on every property (`= string.Empty`, `= new()`), `{ get; set; }` or `init`
 
-## Null Handling
-- Leverage nullable reference types (`#nullable enable`)
-- Use null-coalescing operator: `x ?? defaultValue`
-- Use null-conditional operators: `obj?.Property`, `collection?[index]`
-- Null checks with guard clauses at method start
-- Avoid nested null checks; use `?.` operator
+### Extension methods & fluent APIs
+- Use for utility functions and fluent builders; keep them in a dedicated namespace/static class per concern
+- Don't clash with LINQ or existing instance methods; don't extend `object` or very broad types
 
-## String Handling
-- Use string interpolation: `$"Hello {name}"` (preferred over `string.Format()`)
-- Use StringBuilder for performance-critical string concatenation in loops
-- Use `string.IsNullOrEmpty()` or `string.IsNullOrWhiteSpace()` for validation
-- Use `@"..."` verbatim strings for paths and multi-line strings
+### Strings
+- Interpolation (`$"Hello {name}"`) over `string.Format`; `StringBuilder` for concatenation in loops
+- `string.IsNullOrWhiteSpace` for validation
+- Always pass `StringComparison`/`StringComparer` (`Ordinal`, `OrdinalIgnoreCase`) for comparison, `Contains`, `StartsWith`, dictionary keys. Use `CultureInfo.InvariantCulture` for non-user-facing formatting/parsing
+- Prefer `DateTimeOffset` (UTC) over `DateTime`; inject `TimeProvider` where "now" matters
 
-## Patterns & Async
-- Use dependency injection for all external dependencies
-- Prefer async/await for all I/O operations (database, HTTP, file I/O)
-- Use `ConfigureAwait(false)` in library code (not UI code) for better performance
-- Return `Task` (not `void`) from async methods, except event handlers
-- Use `Task.FromResult()` for sync results in async methods
-- Use `IAsyncEnumerable<T>` with `await foreach` for streaming async data (C# 14)
-- Use IOptions pattern for configuration (inject `IOptions<T>` or `IOptionsSnapshot<T>`)
-- Use Result pattern for expected failures (vs. throwing exceptions)
-- Guard clauses: return early to reduce nesting depth
-- Use switch expressions (`x switch { ... }`) instead of switch statements where possible
-- Use pattern matching: `if (obj is string str)` for type checks and deconstruction
+### LINQ
+- Method syntax; descriptive lambda names (`.Select(user => user.Name)`)
+- Filter before projecting (`Where` → `Select`); avoid multiple enumeration (materialise once when reused)
+- `First/Single` throw when empty; use `...OrDefault` deliberately and handle `null`
+- Avoid `.ToList()` on large sequences unless needed; lazy evaluation is the default; avoid LINQ in hot paths
+- Don't use `Count() > 0`: use `Any()` (or `Count > 0` on collections with a `Count`)
 
-## Immutability
-- Prefer records for DTOs and immutable data
-- Use `record struct` for immutable value types (C# 14)
-- Use init-only properties: `public string Name { get; init; }`
-- Use `required` keyword for properties that must be initialized
-  - **Never use `= default!` as a workaround** — always use `required` if initialization is mandatory
-  - Example: `public required string UserId { get; init; }` not `public string UserId { get; init; } = default!;`
-- Make fields readonly when they don't change after construction
-- Use `with` expressions to create modified copies of records
-- Use primary constructors (C# 14) to reduce boilerplate in immutable types
+## Null Handling & Guards
 
-## Extension Methods & Fluent Interfaces
-- Use extension methods for utility functions or fluent APIs
-- Place extension methods in a dedicated `Extensions` namespace
-- Use fluent chaining for builder patterns and query operations
-- Avoid extension methods that clash with LINQ or existing methods
+- Model absence with `T?`, not sentinel values
+- Boundary/public methods start with guard clauses: `ArgumentNullException.ThrowIfNull(x)`, `ArgumentException.ThrowIfNullOrWhiteSpace(s)`. Don't repeat guards on private/internal paths
+- `??`, `??=`, `?.`, `x ?? throw new ...`
+- Expected absence/failure: return `T?`, `TryX(out ...)` or a Result type (see Errors). Don't use exceptions for control flow
 
-## LINQ
-- Prefer method syntax over query syntax for consistency
-- Use descriptive variable names in `Select()`: `.Select(user => user.Name)` not `.Select(x => x.Name)`
-- Filter before projection: `.Where(...).Select(...)` (applies to collections)
-- Use `FirstOrDefault()` or `SingleOrDefault()` cautiously (throws on `First()` if not found)
-- Avoid `.ToList()` on large collections unless necessary
-- Use LINQ lazy evaluation for deferred execution
+## Async & Concurrency
 
-## Logging & Errors
+- `Async` suffix on all async methods; return `Task`/`Task<T>`, never `async void` (except event handlers); never block with `.Result`/`.Wait()`/`GetAwaiter().GetResult()`
+- `CancellationToken cancellationToken` is the last parameter and flows through every call
+  - Public library API: `= default`
+  - Application-internal code: no default, so callers can't forget it
+- `ConfigureAwait(false)` in **library** code only; not in ASP.NET Core/worker application code
+- Distinguish timeout from cancellation:
+  - `catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)` = timeout
+  - `catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)` = caller cancelled
+- Use `Task.FromResult`/`ValueTask.FromResult` for synchronous results; `ValueTask` only for hot paths and lifetime hooks
+- Don't fire-and-forget; background work belongs in a `BackgroundService`
+- Async critical sections: `SemaphoreSlim(1, 1)` with `await WaitAsync(ct)` and `Release()` in `finally`; dispose it
+- Cached async values in a singleton (e.g. auth token): check without lock → acquire → **re-check** → refresh → release; provide `Invalidate()` for server rejection
+- Parallel I/O: `Task.WhenAll`, `Parallel.ForEachAsync` with `MaxDegreeOfParallelism`; no unbounded fan-out
+- Retry/poll intervals come from options so tests can set `TimeSpan.Zero`
+- **Observed:** background jobs use `BackgroundService` + bounded `Channel<T>` (`SingleReader = true`, `FullMode = Wait`), a new scope per job (`await using var scope = scopeFactory.CreateAsyncScope();`), and final state persisted in `finally` with `CancellationToken.None`
 
-**Note**: For general error handling principles (don't swallow exceptions, handle explicitly), see CLAUDE.md. This section covers C# specific syntax and patterns.
+## Dependency Injection, Configuration, Options
 
-### C# Specific Exception Handling
-- Use throw expressions: `x ?? throw new InvalidOperationException(...)`
-- Use guard clauses with `ArgumentNullException.ThrowIfNull()`
-- **NEVER use empty catch blocks**: `catch { }` is forbidden
-  - Exception handlers must either:
-    1. Log the exception with context: `catch (SpecificException ex) { _logger.LogError(ex, "..."); }`
-    2. Transform and rethrow: `catch (Ex ex) { throw new DomainException(..., ex); }`
-    3. Handle with recovery: `catch (Ex ex) { /* handle recovery */ }`
-- Always catch specific exceptions, not base `Exception`
-- Always include meaningful context in exception messages
+- Constructor injection for all external dependencies; no service locator (`IServiceProvider` only in factories/composition roots); no static mutable state
+- Registration through one `AddX(this IServiceCollection, ...)` extension per library/feature, returning `IServiceCollection`; offer `IConfigurationSection` and `Action<TOptions>` overloads
+- Lifetimes: be deliberate. Singleton must not capture scoped services; use `IServiceScopeFactory` in singletons/background services
+- Options pattern: `IOptions<T>` (static), `IOptionsSnapshot<T>` (per request), `IOptionsMonitor<T>` (live reload). `public const string SectionName`. Validate with data annotations and/or `.Validate(...)` plus **`.ValidateOnStart()`** so bad config fails at startup
+- Configuration comes from files/environment/vault, never hard-coded; secrets never in source or logs
+- Required values without an options class: `config.GetValue<string>("A:B") ?? throw new InvalidOperationException("Configuration A:B is required.")`
+- Interfaces `public`; implementations default to `internal sealed`
+- **HttpClient**: always via `IHttpClientFactory`/typed clients (`AddHttpClient<IFoo, Foo>()`), never `new HttpClient()` per call. Add resilience with `Microsoft.Extensions.Http.Resilience` (retry with backoff + jitter, circuit breaker, timeouts); retry only transient failures and honour `Retry-After`. Redact secret headers in logs (`.RedactLoggedHeaders([...])`)
+- Minimal APIs: group routes in `Map<Feature>Api(this IEndpointRouteBuilder)`, private static handlers returning `IResult`, `.Produces<T>(StatusCodes.StatusNNN)` per outcome, translate domain exceptions to 4xx in the handler, `MapHealthChecks("/health")`
+- **Observed:**
+  - Required-config helpers (`RequiredString/Int/Url`) that also reject unreplaced `<PLACEHOLDER>` values and non-absolute URLs
+  - Shared `WebApplicationBuilder` extension for logging/health/pipelines so several hosts stay identical
+  - Bearer-token `DelegatingHandler` with a separate named `HttpClient` for the token request and cache invalidation on 401
+  - Resilience helpers as extension methods on `ResiliencePipelineBuilder<HttpResponseMessage>`; pass client name via `ResilienceContextPool.Shared.Get(ct)` + `request.SetResilienceContext(ctx)`, `Return` in `finally`
+  - Pre-serialise request bodies to `StringContent` when the API needs `Content-Length` (`JsonContent` streams chunked); keep `JsonSerializerOptions` in `static readonly` fields
 
-### Exception Types & Patterns
-- Create custom exceptions for domain-specific errors
-- Use Result pattern for expected failures (recoverable errors)
-- Log at appropriate levels: Debug < Information < Warning < Error < Critical
-- Use Microsoft.Extensions.Logging with dependency injection
-- Use IOptions pattern for configuration (inject `IOptions<T>` or `IOptionsSnapshot<T>`)
+## Errors & Exceptions
 
-## Resource Management & IDisposable
-- Prefer `using` declarations (C# 8+): `using var resource = GetResource();` over `using (var resource = GetResource()) { ... }`
-- Use statements only when you need disposal at a specific point before method end
-- Implement `IDisposable` and `IAsyncDisposable` when managing unmanaged resources
-- Override `Dispose(bool)` pattern if implementing IDisposable
-- Never suppress finalizers without proper cleanup
+General principles are in CLAUDE.md. C#-specific:
+- Guard with `ArgumentNullException.ThrowIfNull`, `ArgumentException.ThrowIfNullOrWhiteSpace`; throw expressions (`x ?? throw ...`)
+- **Never an empty `catch`.** A handler must (1) log with context, (2) wrap and rethrow with the inner exception, or (3) genuinely recover
+- Catch the most specific exception. Use `throw;` (not `throw ex;`) to rethrow
+- A broad `catch (Exception)` is acceptable only at a top-level boundary (worker loop, job processor, request pipeline), and then it logs, records failure and is preceded by the `OperationCanceledException when (...)` clause
+- Custom exceptions for domain/integration errors: `sealed` unless a hierarchy is needed; constructors for message, message + inner, and domain data; nullable properties documented. Use a small hierarchy with static factories (`Communication.Timeout(ex)`) when callers react differently
+- Exception messages include identifying context (endpoint, id, attempt, last status)
+- Wrap transport failures in the boundary exception, log first, preserve the inner exception. Map HTTP status → exception in one `switch` expression
+- Map exceptions → error codes in exactly one place, by **type**, never by message text
+- **Result pattern** (e.g. `Result<T>`/discriminated unions) for expected, recoverable failures; exceptions for the exceptional. The reference projects use nullable returns instead; adopt Result in a project only when the codebase already does or you ask
 
-## Documentation
+## Logging
 
-### XML Documentation Standards
-- **Minimum 75% coverage** for public API (baseline); higher for critical business logic, public SDKs, and complex methods
-- Document parameters with `<param>`, return values with `<returns>`, exceptions with `<exception>`
-- **Inline comments**: Focus on "why" (code shows "what"). Avoid redundant comments like `i++; // increment i`
-- **XML docs**: Document "what" first (`<summary>` for purpose, `<param>` for parameters, `<returns>` for return value), then explain "why" if non-obvious
-- Use `<summary>` for class-level and method-level documentation
-- Do not document internal/private members unless logic is complex
-- Include examples for complex public APIs
+- `Microsoft.Extensions.Logging` via DI (`ILogger<T>`); levels used correctly: Debug < Information < Warning < Error < Critical
+- **Structured** templates with named PascalCase placeholders (`{Endpoint}`, `{JobId}`), never string interpolation in the template; pass the `Exception` as its own parameter
+- Preferred for new code: `[LoggerMessage]` source generation in an `internal static partial class <Feature>Log` (extension methods on `ILogger`). Some repos log inline with a short tag prefix (`"[Tag] ..."`): in such a repo match it and keep one style per repo
+- Guard expensive arguments with `logger.IsEnabled(LogLevel.Debug)`
+- Never log secrets, tokens, PII; redact headers
+- Configure the sink (e.g. Serilog + Seq) once in a shared host extension
 
-### Documentation Best Practices
-- Document *constraints* on parameters (e.g., "case-sensitive", "cannot be null")
-- Explicitly document nullable returns (e.g., "or null if authentication fails")
-- List all checked exceptions; omit framework exceptions (NullReferenceException, etc.)
-- Add `<remarks>` for behavior that isn't obvious from the summary
-- Include `<example>` for complex public APIs showing typical usage
+## Resource Management
 
-### What NOT to Document
-- Private/internal members (unless extremely complex)
-- Self-explanatory property getters: `public string Name { get; set; }` needs no docs
-- Simple pass-through methods
-- Override methods that clearly inherit parent documentation
+- Prefer `using` declarations (`using var x = ...;`); `using` blocks only when disposal must happen before method end
+- Implement `IDisposable`/`IAsyncDisposable` for owned unmanaged/disposable resources; the full `Dispose(bool)` pattern only when a finalizer exists; `sealed` classes can use a simple `Dispose()`
+- Never suppress finalization without proper cleanup; dispose `CancellationTokenSource`, `SemaphoreSlim`, `HttpRequestMessage`/`HttpResponseMessage`
+- Use `await using` for async disposables
+
+## Data Access (EF Core)
+
+- `DbContext` with primary constructor; fluent mapping in `OnModelCreating`; scoped lifetime; async APIs only
+- `AsNoTracking()` for read-only queries; project to DTOs instead of loading graphs; avoid N+1 (`Include`/projection); paginate
+- Migrations in source control; parameterised queries only (no string-built SQL)
+- Keep entities (domain) separate from DTOs (API contracts)
+
+## Documentation & Comments
+
+- New files start with the 1–4 line `// ABOUTME:` header above the `using`s
+- Comment rules are in CLAUDE.md (self-explanatory code first; a comment only for a useful, non-obvious *why*)
+- **XML docs**:
+  - Public libraries/SDKs/shared packages: document every public member (`<summary>`, `<param>`, `<returns>`, `<exception>`), enable CS1591
+  - Application code: document public interface methods where the contract isn't obvious. Multi-line blocks are fine there
+  - Document *constraints* (case-sensitive, not null), explicit nullable returns ("or `null` if not found"), side effects, thrown exceptions (not framework ones like `NullReferenceException`)
+  - Add `<remarks>`/`<example>` for non-obvious behaviour or complex APIs
+  - Don't document private/internal members (unless complex), self-explanatory properties, pass-throughs, or overrides that inherit docs
+  - Library code with external consumers needs full XML docs even though application code stays comment-free; apply per project type
 
 ## Code Analysis & Tooling
-- Enable Roslyn analyzers in the project file
-- Use StyleCop analyzers for code style consistency
-- Run code analysis: `dotnet analyze` or `dotnet build` (if analyzers configured)
-- Address all warnings as errors in CI/CD pipelines
-- Use `#pragma warning disable` sparingly and only with justification
 
+- Roslyn analyzers on (`EnableNETAnalyzers`, `AnalysisLevel` latest, `EnforceCodeStyleInBuild`); StyleCop optional for libraries
+- CI: build with warnings as errors, `dotnet format --verify-no-changes`, `dotnet list package --vulnerable`, tests with coverage
+- Pre-commit hooks enforce build, tests, formatting; never bypass them
 
 ## Testing
-**Note**: For general testing principles (TDD, unit/integration/e2e requirements, test coverage minimums), see CLAUDE.md. This section covers C# specific tooling and patterns.
 
-### Test Framework & Mocking
-- Use xUnit for unit tests
-- Use Shouldly for assertions (readable, assertion-first syntax)
-- Use NSubstitute for mocking (preferred over Moq for clarity)
-- Use Testcontainers for integration tests (databases, external services)
-- Follow AAA pattern: Arrange → Act → Assert
+General rules (TDD, unit + integration + e2e, real data over mocks) are in CLAUDE.md.
 
-### Test Organization & Project Structure
-- Create parallel test projects: `Project.Tests` (unit), `Project.Integration` (integration)
-- One test class per production class (or logical feature)
-- Test file naming: `[ClassName]Tests.cs`
-- Test method naming: `MethodName_Scenario_ExpectedOutcome()`
-- Example: `GetUser_WithValidId_ReturnsUser()`
-- Group related tests with `[Trait("Category", "Auth")]`
-- Use `xunit` fixtures for shared setup
+### Stack and principles
+- **xUnit** (v3 for new projects), **Shouldly** (assertion-first), **WireMock.Net** (in-process) for HTTP dependencies, **Testcontainers** for real databases/brokers/servers
+- Mocking library: match the project. **Greenfield default: NSubstitute** (clearer API). Reference projects use Moq, see deviations
+- Prefer, in order: real thing (WireMock/Testcontainers) → hand-written fake → mock. Mock only what is external to the class under test. Never mock the project's own HTTP client abstraction when a WireMock test can exercise the real one
+- Assert on outcomes and captured arguments; avoid interaction call-counting (`Verify(..., Times.X)`) unless the interaction *is* the behaviour
+- AAA (Arrange → Act → Assert); one behaviour per test; tests independent and parallel-safe; deterministic (no real clocks, sleeps or network)
+- Meaningful assertion messages where the failure isn't self-explanatory: `result.ShouldBe(expected, "user should be retrieved")`
+- Critical paths: happy path plus error cases (auth failure, 404, validation error, timeout, 5xx/resilience). Authorization logic gets exhaustive coverage
 
-### Test Data & Mocking
+### Organisation
+- Test project per production project: `Foo` ↔ `Foo.Tests`, mirroring the folder tree. Separate **unit** and **integration** projects (`Foo.Tests`, `Foo.IntegrationTests`) in large solutions so unit tests run without Docker; small solutions may use `Unit/` and `Integration/` folders in one project (as the reference projects do)
+- `public sealed class <ClassName>Tests`; split big SUTs by concern (`...ResilienceTests`, `...EdgeCaseTests`)
+- File naming `[ClassName]Tests.cs`; method naming `Method_Condition_ExpectedResult`. Snake_case sentences and `Should_...` also occur: follow the file, never mix within one
+- Categorise with `[Trait("Category", "Integration")]` so CI can filter
+- Use fixtures for expensive shared setup; test-class instances are per test, so `Mock<T>` fields and `CreateSut()` helpers are safe
+- Test files get an `// ABOUTME:` header
 
-**Unit Tests:**
-- Mock external dependencies (APIs, file systems, databases)
-- Use NSubstitute for mocks
-- Avoid over-mocking; mock only what's external to your class
-- Use test fixtures to reduce boilerplate
+### xUnit v3 specifics
+- Test projects: `<OutputType>Exe</OutputType>`, `<IsTestProject>true</IsTestProject>`, `<IsPackable>false</IsPackable>`; packages `xunit.v3`, `xunit.runner.visualstudio`, `Microsoft.NET.Test.Sdk`
+- Pass `TestContext.Current.CancellationToken` to async calls under test (analyzer xUnit1051)
+- Fixtures implement `IAsyncLifetime` (`ValueTask` methods); share via `[CollectionDefinition(Name, DisableParallelization = true)]` + `[Collection(Name)]`; fixtures arrive through primary constructors: `public sealed class FooTests(WireMockFixture fixture)`
+- `[Theory]` + `[InlineData]` for value variations; `[MemberData]` for complex data
+- `Should.ThrowAsync<XException>(() => sut.DoAsync(...))`, then assert on exception properties
 
-**Integration Tests:**
-- Use Testcontainers for real databases and services (PostgreSQL, MySQL, Redis, etc.)
-- Use real data against containerized services instead of mocks
-- Testcontainers automatically manages container lifecycle
-- Keep integration tests focused on single feature or flow
+### Patterns that work in the reference projects
+- Build the SUT directly: `Options.Create(new FooOptions { ... })`, `NullLogger<Foo>.Instance`
+- WireMock stubs as plain WireMock JSON (`mappings/` + `__files/`) in `src/Wiremocks` (own `Dockerfile` + README), linked into test output (`<Content Include="..\..\src\Wiremocks\**\*"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><Link>Wiremock\%(RecursiveDir)%(Filename)%(Extension)</Link></Content>`) so the same stubs serve local development and tests; the folder-name constant must match the loader's
+- Magic IDs that select stub behaviour are `public const string` on the fixture; WireMock **scenarios** model stateful sequences (call `ResetScenarios()` between tests)
+- Polling/sequential logic: a hand-written `StubClient` returning queued responses with `Interval = TimeSpan.Zero`; assert on poll count and exception properties
+- Large client interfaces: a nested `protected sealed class FakeXClient` in a shared abstract base; unused members throw `NotUsed()`; the fake records its last arguments
+- Integration factory (`IntegrationTestFactory<TMarker>`-style, `IAsyncLifetime`): start WireMock/containers → build host → patch configuration to the stub URL with zero retry delays
+- Runs in CI without Docker where possible (in-process WireMock)
 
-**General:**
-- Keep tests focused on single responsibility
-- Test one behavior per test method
-- Use meaningful assertion messages: `result.ShouldBe(expected, "user should be retrieved")`
+## Architecture & Project Structure
 
-## Build & Dependencies
-- Use `dotnet` CLI for all build operations
-- Keep NuGet packages up to date (run `dotnet outdated` or check for vulnerabilities)
-- Pin dependencies to stable versions; avoid floating versions in production
-- Use `.csproj` project files (not legacy `.csproj.json`)
-- Target specific frameworks (.NET 10.0+) rather than broad compatibility
-- Use deterministic builds where possible for reproducibility
+**Never change the folder structure of an existing project without permission.** The tree below is an example only.
 
-## Workflow & Commands
-
-### Development Commands
-```bash
-# Build
-dotnet build
-
-# Run tests
-dotnet test
-
-# Run single test
-dotnet test --filter "TestClassName"
-
-# Code analysis
-dotnet analyze
-
-# Format code
-dotnet format
-
-# Run specific project
-dotnet run --project ./src/ProjectName
-```
-
-### Development Process
-- Write both unit tests AND integration tests for new features
-- Run `dotnet test` locally before committing
-- Run code analysis: `dotnet analyze` or `dotnet build` to catch warnings
-- Use `dotnet format` to ensure consistent formatting
-- Pre-commit hooks should enforce: tests pass, no warnings, formatted code
-
-## Project Structure & Architecture
-
-### Folder Organization
-This is an example only. NEVER change the folder structure of an existing project without my permission!
 ```
 src/
   ├── Project.Api/           # ASP.NET Core API layer
@@ -263,12 +230,47 @@ tests/
   └── Project.Integration/   # Integration tests
 ```
 
-### Architecture Principles
-- **Separation of Concerns**: API layer, business logic, data access should be separate
-- **Dependency Rule**: Inner layers shouldn't depend on outer layers
-- **SOLID Principles**: Apply throughout (Single Responsibility, Open/Closed, etc.)
-- **Repository Pattern**: Abstract data access behind interfaces
-- **Service Layer**: Business logic between API and data access
-- **Minimal API Surface**: Expose only what's necessary; use `internal` liberally
-- **Entity vs. DTO**: Keep entities (domain models) separate from DTOs (API contracts)
+### Principles
+- **Separation of concerns**: API, business logic, data access separate
+- **Dependency rule**: inner layers never depend on outer layers
+- **SOLID** throughout; **YAGNI**; reduce duplication (don't clone near-identical classes: make them generic)
+- Repository/service layers abstract data access and business logic behind interfaces; don't wrap EF Core in a generic repository without a reason
+- **Minimal API surface**: `internal` by default, `public` only as needed
+- Entities (domain) separate from DTOs (contracts)
+- `[ExcludeFromCodeCoverage]` only for wiring with no logic (log classes, composition roots). Never on code with branches
 
+### Observed in the reference projects
+- Naming `{Company}.{Team}.{Product}.{Part}`; `src/` and `test/` mirror each other
+- Typical split: `Application` (host), `Domain` (domain/generated types), `Commons` (shared constants/hosting/options, no logic), `<Thing>Client` (standalone library with no project references to the others; own README/SPEC, options, models, exceptions, tests), separate deployable tools as their own projects
+- Several independently deployable hosts (e.g. one per orchestration tier) can share one `Commons` project; each has its own `Dockerfile`, `appsettings*.json`, launch profile
+- Library layout: `Models/`, `Options/`, `Exceptions/`, public interface, internal implementation, `ServiceCollectionExtensions.cs` at the root. Application layout: feature folder first, role second (`Feature/Action/Workers`)
+- For `WebApplicationFactory<T>`-style factories expose an empty `public sealed class <Host>ProgramMarker;` per host (with `// NOSONAR: <reason>`)
+- Repo root: `docker-compose.yml` (hosts + stub server), `scripts/`, `docs/`
+
+## Reference Projects vs Best Practice
+
+Seen in the two reference projects and **not** to be copied into new or large projects. Respect them when working inside those repos, and don't "fix" them unprompted (log as issues per the Bug Discovery Protocol).
+
+| Observed in reference projects | Best practice | Guidance |
+|---|---|---|
+| `TreatWarningsAsErrors=false` ("while refactoring") | Warnings as errors in CI | Keep off only where the repo does; add no new warnings |
+| Suppressed rules (CA1848 LoggerMessage, CA1852 seal, CA1812, CA1860) | Fix or keep enabled | Suppression is reasoned in the repo; new code should still use `[LoggerMessage]` and `sealed` |
+| Moq as mocking library (plus `Verify`/`Times` counting in some tests) | NSubstitute preferred for clarity; state-based assertions | Match the repo; greenfield uses NSubstitute |
+| Inline `logger.LogX("[Tag] ...")` calls in one repo | `[LoggerMessage]` source generation | Match the repo's style; new repos use source generation |
+| `DateTimeOffset.UtcNow` called directly (no `TimeProvider`) | Inject `TimeProvider`/clock for testability | Use `TimeProvider` in new code |
+| Classifying exceptions by **message text** ("timed out", "characteristic") | Classify by type/typed error codes | Don't copy; prefer typed exceptions |
+| Broad `catch (Exception)` in 13+ places | Only at top-level boundaries | Keep to workers/processors that log and record failure |
+| Four copy-pasted job-queue classes | Generic `JobQueue<T>` | DRY; don't replicate |
+| `[ExcludeFromCodeCoverage]` on a type containing logic (extension methods with branches) and on 38 files | Only on pure wiring | Never on code with logic |
+| In-memory SQLite to test EF code written for PostgreSQL | Test against the real provider (Testcontainers) | SQLite only when no provider-specific behaviour is involved |
+| Reflection-heavy test helpers (`Activator.CreateInstance`, `GetMethod`) | Strongly typed helpers | Brittle: prefer typed test builders |
+| Commented-out code left in a test base class | Delete dead code | Don't leave it |
+| `CancellationToken.None` in older tests | `TestContext.Current.CancellationToken` (xUnit v3) | Use the context token |
+| `ValidateOnStart()` omitted in one registration (documented workaround) | Always validate options on start | Restore when the blocker is fixed |
+| Public non-sealed option and client classes | `sealed`/`internal` by default | Seal; only open what is designed for it |
+| Mutable `{ get; set; }` option classes | Immutable types | Acceptable for config binding only |
+| Synchronous `SemaphoreSlim.Wait()` in a method of an async class | Async all the way | Prefer `WaitAsync` or a non-blocking design |
+| The same WireMock loader duplicated across repos | Shared package | Candidate for extraction when a third repo needs it |
+| Three test-naming styles | One style per project | Follow the file; don't mix |
+| Docs claimed Testcontainers but tests used in-process WireMock | Docs match reality | Verify docs against code |
+| Expression-bodied methods banned | Microsoft default allows them | Team rule, honour it in those repos; elsewhere follow `.editorconfig` |

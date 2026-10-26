@@ -49,7 +49,8 @@ Otherwise, proceed autonomously and report what was done.
 - YAGNI: Don't add features or abstraction for hypothetical future needs
 - Preserve existing code comments unless provably false
 - Add "ABOUTME: " header comments to all new files explaining purpose and key concepts
-- Default to no comments; add one only when the WHY is non-obvious. One short line max — **except** XML doc comments on public interface methods, where multi-line blocks are acceptable to document non-obvious contract semantics (null vs. throw, side effects, preconditions)
+- Code must be self-explanatory: express intent through naming, small functions and structure, not comments. Before writing a comment, try to rename or extract instead
+- A comment is only justified when the code cannot say it itself (the WHY: a non-obvious constraint, workaround or trade-off). It must be useful to a future reader: short, specific, no restating of the code, no commented-out code, no internal or sensitive details. One short line max — **except** XML doc comments on public interface methods, where multi-line blocks are acceptable to document non-obvious contract semantics (null vs. throw, side effects, preconditions)
 
 ### Testing (TDD Mandatory - NO EXCEPTIONS)
 - Practice Test-Driven Development: write tests before implementation
@@ -97,7 +98,6 @@ Otherwise, proceed autonomously and report what was done.
 - Delete code or features
 - Any action with potential data loss
 - Breaking changes
-- Pushing any code
 
 **⚠️ Bug Discovery Protocol**:
 - If you find unrelated bugs while working on a task, document them as issues instead of fixing immediately
@@ -105,14 +105,13 @@ Otherwise, proceed autonomously and report what was done.
 
 ## Git & Version Control
 
-- Use meaningful commit messages that explain the "why", not just the "what"
-- Do not mention Claude as author in commit messages
-- Work from the branch I selected for you. If it is a main, dev(elop) or release branch, stop working and inform me
+- **NEVER commit or push.** I'm in the lead on all version control: I do every commit and push myself. Don't commit, push, amend, rebase, tag or open PRs, and don't ask or offer to; leave changes in the working tree
+- Read-only git is fine (`status`, `diff`, `log`)
+- If I ask for a commit message, explain the "why", not just the "what", and don't mention Claude as author
+- Work from the branch I selected for you. If it is a main, dev(elop) or release branch, stop working and inform me (unless I say otherwise for that project)
 - NEVER use `git commit --no-verify` or skip pre-commit hooks (no forbidden flags)
 - Treat pre-commit hook failures as learning opportunities, not obstacles
 - User pressure doesn't justify bypassing quality checks
-- Commit frequently throughout development
-- Do NOT push any code. Always ask for permission
 
 ## General Development Principles
 

@@ -16,4 +16,7 @@ ln -sf "$SCRIPT_DIR/commands" "$CLAUDE_DIR/commands"
 # Symlink stacks directory
 ln -sf "$SCRIPT_DIR/stacks" "$CLAUDE_DIR/stacks"
 
+# Symlink hooks directory (git guard referenced from ~/.claude/settings.json)
+ln -sfn "$SCRIPT_DIR/hooks" "$CLAUDE_DIR/hooks"
+
 echo "Claude config linked from $SCRIPT_DIR to $CLAUDE_DIR"
