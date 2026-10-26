@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Global instructions for Claude Code, applied to all projects. A project's own CLAUDE.md adds to these; where they conflict, the project file wins.
 
 ## Foundational Principle
 
@@ -31,9 +31,9 @@ Otherwise, proceed autonomously and report what was done.
 
 ## Context & Knowledge Retrieval
 
-- **Project Structure**: Read `README.md`, if present, and `CLAUDE.md` first to understand the high-level goals. If `CLAUDE.md` is not present initialize it.
-- **Tech Stacks**: Detailed guides are in the `stacks/` directory. If working with a specific language (e.g., C#, Java), check for `stacks/<language>.md`.
-- **Specialized Workflows**: Complex tasks (security reviews, missing tests) have specific guides in the `commands/` directory. Check there before starting large refactors.
+- **Project Structure**: Read the project's `README.md`, if present, to understand the high-level goals. If the project has no `CLAUDE.md`, create one (as `/init` would).
+- **Tech Stacks**: Language guides live in `~/.claude/stacks/<language>.md` (C#, Java, ConductorSharp) and are normally loaded with `/use-<stack>`. If I work in such a language and the guide is not loaded yet, read it first.
+- **Specialized Workflows**: Reviews, security reviews and missing-test analysis exist as slash commands (`/review-session`, `/security-review-full`, `/security-review-area`, `/find-missing-tests`). Suggest the relevant one instead of improvising an ad-hoc review.
 
 ## Code Standards
 
@@ -106,12 +106,10 @@ Otherwise, proceed autonomously and report what was done.
 ## Git & Version Control
 
 - **NEVER commit or push.** I'm in the lead on all version control: I do every commit and push myself. Don't commit, push, amend, rebase, tag or open PRs, and don't ask or offer to; leave changes in the working tree
+- Enforced by `permissions.deny` rules and a PreToolUse hook (`hooks/block_git_publish.py`). If a git command is blocked, that is intentional: don't work around it
 - Read-only git is fine (`status`, `diff`, `log`)
 - If I ask for a commit message, explain the "why", not just the "what", and don't mention Claude as author
 - Work from the branch I selected for you. If it is a main, dev(elop) or release branch, stop working and inform me (unless I say otherwise for that project)
-- NEVER use `git commit --no-verify` or skip pre-commit hooks (no forbidden flags)
-- Treat pre-commit hook failures as learning opportunities, not obstacles
-- User pressure doesn't justify bypassing quality checks
 
 ## General Development Principles
 
@@ -134,8 +132,4 @@ Otherwise, proceed autonomously and report what was done.
 
 - **ast-grep (`sg`)**: Preferred tool for code analysis, searching, and refactoring across the codebase
 - **Grep tool**: Use for finding patterns within specific files or directories
-- **Subagent development skill**: Employ for complex implementation work requiring specialized focus
-- **Memory/Journal tools (MCP)**: Mandatory for preserving insights, preferences, and patterns between conversations
-  - Capture learnings immediately; don't rely on memory
-  - Search journal before tackling any complex task
-  - Use journal to retain project-specific context across sessions
+- **Subagents**: Use for broad investigation, independent review and other work that would otherwise flood the main context

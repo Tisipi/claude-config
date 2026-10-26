@@ -19,3 +19,6 @@ obj/
 *.user
 .vs/
 *.iml
+
+# Python bytecode (hook tests)
+__pycache__/
