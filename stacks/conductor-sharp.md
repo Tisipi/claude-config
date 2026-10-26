@@ -38,11 +38,13 @@ Inherit from `Workflow<TWorkflow, TInput, TOutput>`. Input must extend `Workflow
 
 Two equivalent conventions exist for workflow input/output — pick one and apply it consistently within a project:
 
-**Option A — Nested `In`/`Out` classes (guide default):** input and output are inner classes of the workflow. Keeps everything self-contained, works well with `partial class`.
+**Option A — Nested `In`/`Out` classes:** input and output are inner classes of the workflow. Keeps everything self-contained, works well with `partial class`.
 
-**Option B — Flat external classes:** input and output are separate top-level classes named `<WorkflowName>Input` / `<WorkflowName>Output`. More verbose but easier to reference from outside the workflow class. Access via `wf.Input` is identical in both options.
+**Option B — Flat external classes (default):** input and output are separate top-level classes named `<WorkflowName>Input` / `<WorkflowName>Output`. More verbose but easier to reference from outside the workflow class and to reuse as a base class. Access via `wf.WorkflowInput` is identical in both options.
 
 Use Option B unless the project already uses Option A — don't mix within a project.
+
+**Option A example (nested classes):**
 
 ```csharp
 [OriginalName("domain_resource_preparation")]
@@ -60,7 +62,7 @@ public partial class ResourcePreparation(
 
     public class Out : WorkflowOutput
     {
-        public required RpdDevice RpdDevice { get; init; }
+        public required Device Device { get; init; }
         public required string Intent { get; set; }
     }
 
@@ -70,7 +72,7 @@ public partial class ResourcePreparation(
 }
 ```
 
-**Option B example (flat classes):**
+**Option B example (flat classes, default):**
 
 ```csharp
 public class ResourcePreparationInput : WorkflowInput<ResourcePreparationOutput>
@@ -94,7 +96,7 @@ public class ResourcePreparation(
     {
         _builder.AddTask(
             wf => wf.GetDevices,
-            wf => new GetDevicesFromInventory.Request() { OrderId = wf.Input.OrderId }
+            wf => new GetDevicesFromInventory.Request() { OrderId = wf.WorkflowInput.OrderId }
         );
         _builder.SetOutput(wf => new ResourcePreparationOutput() { ResourceId = wf.GetDevices.Output.ResourceId });
     }
@@ -110,7 +112,7 @@ public override void BuildDefinition()
 
     _builder.AddTask(
         wf => wf.GetDevices,
-        wf => new GetDevicesFromInventory { OrderId = wf.Input.OrderId }
+        wf => new GetDevicesFromInventory { OrderId = wf.WorkflowInput.OrderId }
     );
 
     _builder.AddTask(
@@ -125,7 +127,7 @@ public override void BuildDefinition()
 
     _builder.SetOutput(wf => new Out
     {
-        RpdDevice = wf.GetDevices.Output.RpdDevice,
+        Device = wf.GetDevices.Output.Device,
         Intent = wf.GetDevices.Output.Intent,
     });
 }
@@ -147,7 +149,7 @@ public class GetDevicesFromInventory : IRequest<Response>
 
 public class Response
 {
-    public required RpdDevice RpdDevice { get; set; }
+    public required Device Device { get; set; }
     public required string Intent { get; set; }
 }
 
@@ -166,7 +168,7 @@ public sealed class Handler(
 ```
 
 - PascalCase properties auto-convert to `snake_case` in Conductor JSON
-- Override with `[JsonProperty("custom_name")]` when needed
+- Override with `[JsonProperty("custom_name")]` (Newtonsoft, takes precedence) or `[JsonPropertyName("custom_name")]`; the name is used verbatim in the generated expression, so a dotted name such as `"prepare_output.order_data.id"` binds a path into the workflow input (see *Multi-Phase Order Orchestration*)
 - Use `[Required]` on request model properties — validated by `AddValidation()` pipeline
 - Use `required` keyword on all input/output properties
 
@@ -190,12 +192,12 @@ services.RegisterWorkerTask<MyTaskHandler>(options =>
 
 ### Expression Generation
 
-C# property access and string interpolation auto-translates to Conductor expressions. Use `wf.Input` to reference workflow input (from inner `In` class):
+C# property access and string interpolation auto-translates to Conductor expressions. Use `wf.WorkflowInput` to reference the workflow input (`wf.Input` is inherited from the task model and generates the same expression, but reads like a task input):
 
 ```csharp
 // C#
 CustomerName = $"{wf.GetCustomer.Output.FirstName} {wf.GetCustomer.Output.LastName}"
-Address = wf.Input.Address   // wf.Input references the workflow's In class
+Address = wf.WorkflowInput.Address   // wf.WorkflowInput references the workflow's input class
 
 // Generated Conductor JSON
 "customer_name": "${get_customer.output.first_name} ${get_customer.output.last_name}",
@@ -206,9 +208,9 @@ Address = wf.Input.Address   // wf.Input references the workflow's In class
 
 - **Property chaining**: `wf.Task.Output.Field` — plain member access only; no method calls and no `Nullable<T>.Value` (see Known Limitations)
 - **String interpolation**: `$"{wf.Task.Output.Name}"`
-- **String concatenation**: `1 + "Str_" + wf.Input.Value`
+- **String concatenation**: `1 + "Str_" + wf.WorkflowInput.Value`
 - **Type casting**: `((FullName)wf.Task.Output.Name).FirstName` → `${task.output.name.first_name}`
-- **Dictionary indexing**: `wf.Input.Dictionary["key"].Property` → `${workflow.input.dictionary['key'].property}`
+- **Dictionary indexing**: `wf.WorkflowInput.Dictionary["key"].Property` → `${workflow.input.dictionary['key'].property}`
 - **Array initialization**: `new[] { 1, 2, 3 }` → `[1, 2, 3]`
 - **Object initialization**: Nested objects and anonymous types supported
 - **Workflow name embedding**: `NamingUtil.NameOf<MyWorkflow>()` → resolves `[OriginalName]` value
@@ -236,7 +238,7 @@ public sealed class Handler(ConductorSharpExecutionContext context)
 ### Simple Task
 
 ```csharp
-_builder.AddTask(wf => wf.MyTask, wf => new MyTaskRequest { Input = wf.Input.Value });
+_builder.AddTask(wf => wf.MyTask, wf => new MyTaskRequest { Input = wf.WorkflowInput.Value });
 ```
 
 ### Sub-Workflow Task
@@ -246,7 +248,7 @@ Declare with `SubWorkflowTaskModel<TInput, TOutput>`:
 ```csharp
 public SubWorkflowTaskModel<ChildWorkflowInput, ChildWorkflowOutput> ChildWorkflow { get; set; }
 
-_builder.AddTask(wf => wf.ChildWorkflow, wf => new ChildWorkflowInput { OrderId = wf.Input.OrderId });
+_builder.AddTask(wf => wf.ChildWorkflow, wf => new ChildWorkflowInput { OrderId = wf.WorkflowInput.OrderId });
 ```
 
 ### Switch Task (Conditional Branching)
@@ -279,8 +281,8 @@ _builder.AddTask(
     wf => wf.DynamicHandler,
     wf => new DynamicTaskInput<ExpectedInput, ExpectedOutput>
     {
-        TaskInput = new ExpectedInput { OrderId = wf.Input.OrderId },
-        TaskToExecute = wf.Input.TaskName
+        TaskInput = new ExpectedInput { OrderId = wf.WorkflowInput.OrderId },
+        TaskToExecute = wf.WorkflowInput.TaskName
     }
 );
 ```
@@ -330,7 +332,7 @@ public DoWhileTaskModel DoWhile { get; set; }
 
 _builder.AddTask(
     wf => wf.DoWhile,
-    wf => new DoWhileInput { Value = wf.Input.Loops },
+    wf => new DoWhileInput { Value = wf.WorkflowInput.Loops },
     "$.do_while.iteration < $.value",  // Loop condition (JavaScript)
     builder =>
     {
@@ -348,7 +350,7 @@ public LambdaTaskModel<LambdaInput, LambdaOutput> LambdaTask { get; set; }
 
 _builder.AddTask(
     wf => wf.LambdaTask,
-    wf => new LambdaInput { Value = wf.Input.Value },
+    wf => new LambdaInput { Value = wf.WorkflowInput.Value },
     script: "return { something: $.Value.toUpperCase() }"
 );
 
@@ -380,7 +382,7 @@ _builder.AddTask(
         TerminationStatus = TerminationStatus.Completed,
         WorkflowOutput = new Out
         {
-            RpdDevice = wf.GetDevices.Output.RpdDevice,
+            Device = wf.GetDevices.Output.Device,
             Intent = wf.GetDevices.Output.Intent,
         }
     }
@@ -402,7 +404,7 @@ public JsonJqTransformTaskModel<JqInput, JqOutput> TransformTask { get; set; }
 
 _builder.AddTask(
     wf => wf.TransformTask,
-    wf => new JqInput { QueryExpression = ".data | map(.name)", Data = wf.Input.Items }
+    wf => new JqInput { QueryExpression = ".data | map(.name)", Data = wf.WorkflowInput.Items }
 );
 ```
 
@@ -459,24 +461,23 @@ services
     .AddConductorSharpPatterns();
 ```
 
-### Assembly-Based Registration (Preferred)
+### Assembly-Based Registration
 
-Rather than registering each handler and workflow manually, scan the assembly automatically:
+ConductorSharp registers per type (`RegisterWorkerTask<T>()`, `RegisterWorkflow<T>()`). For many types, write a small helper once that scans the assembly (workflows implement `IConfigurableWorkflow`, workers implement `IWorker`) and calls the generic methods by reflection:
 
 ```csharp
-// Extension method — define once and reuse across all modules
-public static IServiceCollection RegisterAllConductorPartsFromAssembly(
-    this IServiceCollection services, Assembly assembly)
+public static void RegisterAllWorkflows(this IServiceCollection services, Assembly assembly)
 {
-    return services
-        .RegisterWorkflowsFromAssembly(assembly)
-        .RegisterWorkersFromAssembly(assembly)
-        .AddMediatR(config => config.RegisterServicesFromAssembly(assembly));
+    var register = typeof(WorkflowRegistrationExtensions).GetMethod("RegisterWorkflow");
+    foreach (var type in assembly.GetTypes().Where(t => typeof(IConfigurableWorkflow).IsAssignableFrom(t) && !t.IsAbstract))
+    {
+        register!.MakeGenericMethod(type).Invoke(null, [services, null]);
+    }
 }
-
-// Usage
-services.RegisterAllConductorPartsFromAssembly(typeof(Program).Assembly);
+// RegisterAllWorkerTasks: same with IWorker and TaskRegistrationExtensions.RegisterWorkerTask
 ```
+
+Handlers (MediatR) are discovered through the assemblies passed to `AddExecutionManager(..., typeof(Program).Assembly)`.
 
 Manual registration (for individual cases):
 ```csharp
@@ -565,7 +566,7 @@ _builder.AddTask(
     wf => wf.ReadTasks,
     wf => new ReadWorkflowTasksInput
     {
-        WorkflowId = wf.Input.TargetWorkflowId,
+        WorkflowId = wf.WorkflowInput.TargetWorkflowId,
         TaskNames = "task1,task2"
     }
 );
@@ -580,10 +581,30 @@ public CSharpLambdaTaskModel<LambdaInput, LambdaOutput> InlineLambda { get; set;
 
 _builder.AddTask(
     wf => wf.InlineLambda,
-    wf => new LambdaInput { Value = wf.Input.Value },
+    wf => new LambdaInput { Value = wf.WorkflowInput.Value },
     input => new LambdaOutput { Result = input.Value.ToUpperInvariant() }
 );
 ```
+
+### SignalWait (wait for an external event)
+
+Pauses a workflow until something outside Conductor sends a signal, without holding a worker. `SignalWait` is a sub-workflow (`signal_wait`) of `ConductorSharp.Patterns`.
+
+```csharp
+.AddSignalWait<MySignalStore>("my_app")   // ISignalStore implementation + SignalService + sweeper; prefix names the registered tasks
+
+public required SignalWait WaitForEvent { get; set; }
+_builder.AddTask(wf => wf.WaitForEvent, wf => new SignalWaitInput { SignalKey = $"order:{wf.WorkflowInput.OrderId}" });
+
+// Anywhere else (endpoint, listener): ISignalService
+await signalService.SendSignalAsync($"order:{orderId}", TaskResultStatus.COMPLETED, outputData: null, ct);
+```
+
+- `InMemorySignalStore` is for development and tests only; production needs a persistent `ISignalStore`
+- A signal sent before the workflow waits is stored and delivered later; `SignalSweeperService` completes stragglers
+- `SignalWaitOutput` is empty: read results from the system of record after the wait
+- Sender and workflow must talk to the same Conductor server and share the store
+- Design guidance and failure handling: *Waiting for resource order completion*
 
 ## Kafka Cancellation Notifier
 
@@ -619,7 +640,7 @@ dotnet-conductorsharp --dry-run                # preview only
 
 ### Naming
 
-- **Domain-prefix** all task and workflow names using `snake_case`: `access_rpd_get_device`, `order_validate_input`
+- **Domain-prefix** all task and workflow names using `snake_case`: `billing_get_invoice`, `orders_validate_input`
 - Use `[OriginalName("domain_action_description")]` on every task handler and workflow class
 - Task/workflow names: `snake_case` (all lowercase with underscores)
 - C# class names: PascalCase, semantically matching the `[OriginalName]`
@@ -647,11 +668,11 @@ Always use explicit type names in `AddTask` and `SetOutput` lambdas — never ta
 
 ```csharp
 // Wrong
-_builder.AddTask(wf => wf.GetDevices, wf => new() { OrderId = wf.Input.OrderId });
+_builder.AddTask(wf => wf.GetDevices, wf => new() { OrderId = wf.WorkflowInput.OrderId });
 _builder.SetOutput(wf => new() { ResourceId = wf.GetDevices.Output.ResourceId });
 
 // Correct
-_builder.AddTask(wf => wf.GetDevices, wf => new GetDevicesFromInventory.Request() { OrderId = wf.Input.OrderId });
+_builder.AddTask(wf => wf.GetDevices, wf => new GetDevicesFromInventory.Request() { OrderId = wf.WorkflowInput.OrderId });
 _builder.SetOutput(wf => new ResourcePreparationOutput() { ResourceId = wf.GetDevices.Output.ResourceId });
 ```
 
@@ -669,6 +690,14 @@ public class GetCustomerRequest : IRequest<GetCustomerResponse>
 
 Register `AddValidation()` in the pipeline to enforce automatically.
 
+### Avoid Tasks for Trivial Computations
+
+Do not create a Conductor task solely for a one-line computation (multiplying by a constant, concatenating a name). A task adds serialization and a network round-trip; compute it inside the worker that uses the result:
+
+```csharp
+proxy.MaxConnections = request.MaxUsers * ConnectionsPerUser;   // not a separate "multiply" task
+```
+
 ### Failure Workflows
 
 Define a shared failure workflow per domain and reference it via `[WorkflowMetadata]`:
@@ -677,274 +706,307 @@ Define a shared failure workflow per domain and reference it via `[WorkflowMetad
 [WorkflowMetadata(FailureWorkflow = typeof(FailAllRunningReports))]
 ```
 
-## TMF652 Trigger + Signal-Based Completion Pattern (SOM → ROM)
+## Error Handling
 
-When a SOM fulfillment needs to trigger ROM workflows and wait for completion, **do not poll inside a worker**. The platform (ResourceOrderingEngine) sends a Conductor signal when a ROM order reaches a terminal state. Use a `ROM_PollAndRetry` sub-workflow that waits for this signal.
+Let exceptions propagate out of workers: a failing task fails the workflow. When callers need a machine-readable outcome, throw `StructuredErrorException` (`ConductorSharp.Engine.Exceptions`): it carries a `Code`, a `Reason`, an optional `ReferenceError` and an optional inner exception.
 
-### The Three-Part Pattern
-
-**1. Trigger worker** — fire the resource order, return `RomOrderId` only (no polling):
+Map exceptions to codes in **one place**, a MediatR pipeline behavior wrapped around every task, instead of try/catch in each worker:
 
 ```csharp
-public sealed class Handler(
-    IResourceCatalogManagement4ApiClient catalogClient,
-    IResourceOrderingManagement4ApiClient romClient
-) : TaskRequestHandler<Request, Response>
+public sealed class ErrorMappingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
+    where TRequest : notnull
 {
-    public override async Task<Response> Handle(Request request, CancellationToken cancellationToken)
+    public async Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next, CancellationToken cancellationToken)
     {
-        var specification = await catalogClient.GetResourceSpecificationAsync(MyResource.Id, cancellationToken);
-
-        var resource = new ResourceRefOrValue
+        try
         {
-            ResourceSpecification = new ResourceSpecificationRef { Id = MyResource.Id, Name = MyResource.Name }
-        };
-        var inputProxy = resource.ToEntityProxy<MyResourceEntityProxy>(specification);
-        inputProxy.SomeField = request.SomeValue;
-
-        var order = await romClient.CreateResourceOrderAsync(new ResourceOrder_Create
+            return await next();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            State = ResourceOrderStateType.Acknowledged,
-            Description = "...",
-            OrderItem =
-            [
-                new ResourceOrderItem
-                {
-                    Id = "1", Quantity = 1,
-                    Action = OrderItemActionType.Add,
-                    State = ResourceOrderItemStateType.Initial,
-                    Resource = resource,
-                    ResourceSpecification = new ResourceSpecificationRef { Id = MyResource.Id, Name = MyResource.Name }
-                }
-            ]
-        }, cancellationToken);
-
-        return new Response
+            throw;
+        }
+        catch (StructuredErrorException)
         {
-            RomOrderId = order.Id ?? throw new InvalidOperationException("Resource order created without an ID.")
-        };
+            throw;
+        }
+        catch (Exception exception)
+        {
+            throw ErrorMapper.FromUnhandled(exception);   // switch on exception TYPE, never on message text
+        }
     }
 }
+
+pipelines.AddCustomBehavior(typeof(ErrorMappingBehavior<,>));   // register first so it also wraps AddValidation()
 ```
 
-**2. `ROM_PollAndRetry` sub-workflow** — waits for the platform signal, then reads inventory (`ConductorSharp.Patterns` v4+ required for `SignalWait`):
+- Error codes are constants (validation, southbound/transport, timeout, internal), not string literals
+- Southbound clients throw their own typed exceptions; the mapper translates them (HTTP timeouts to the timeout code, other transport failures to the southbound code, data-annotation and parsing failures to the validation code)
+- Aggregate exceptions: flatten, then pick the most specific code
+- Never swallow exceptions in a worker to "keep the workflow going"; use `.AsOptional()` on the task when failure is acceptable, and check the outcome explicitly afterwards (see *Waiting for resource order completion*)
 
-```csharp
-// using ConductorSharp.Patterns.Model;
-// using ConductorSharp.Patterns.Workflows;
+## Multi-Phase Order Orchestration
 
-[OriginalName("my_rom_poll_and_retry")]
-public class ROM_PollAndRetry(
-    WorkflowDefinitionBuilder<ROM_PollAndRetry, RomPollAndRetryInput, RomPollAndRetryOutput> builder
-) : Workflow<ROM_PollAndRetry, RomPollAndRetryInput, RomPollAndRetryOutput>(builder)
-{
-    public required SignalWait WaitForRomOrderCompletion { get; set; }
-    public required ROM_CheckResourceStatus.Handler VerifyRomResources { get; set; }
+Applies to apps that implement TM Forum style order orchestration on Conductor: a **service layer** receives service orders (TMF641) and creates resource orders (TMF652); a **resource layer** executes each resource order against southbound systems and records the result in resource inventory (TMF639). Many apps contain both layers, as one host or as two hosts sharing a common project. Skip this chapter for plain Conductor workflows.
 
-    public override void BuildDefinition()
-    {
-        _builder.AddTask(
-            wf => wf.WaitForRomOrderCompletion,
-            wf => new SignalWaitInput
-            {
-                // Platform sends this signal key when the ROM order completes
-                SignalKey = $"{Constants.RomOrderCompletionSignalKeyPrefix}:{wf.Input.RomOrderId}",
-            }
-        );
-        _builder.AddTask(
-            wf => wf.VerifyRomResources,
-            wf => new() { RomOrderId = wf.Input.RomOrderId, ExpectedStatus = wf.Input.ExpectedStatus }
-        );
-        _builder.SetOutput(wf => new()
-        {
-            ResourceId = wf.VerifyRomResources.Output.ResourceId,
-            ResourceIds = wf.VerifyRomResources.Output.ResourceIds,
-            Completed = wf.VerifyRomResources.Output.Completed,
-        });
-    }
-}
-```
+The names of the context keys the platform passes to a phase workflow (`item`, `service_id`, `prepare_output`, ...) are defined by the orchestration platform that starts the phase workflows. The examples use the common ones; check the platform documentation for the exact names.
 
-`RomOrderCompletionSignalKeyPrefix = "rom_order"` — define this as a constant and add `AddConductorSharpPatterns()` to the DI setup.
+### Operations and phases
 
-**3. `ROM_CheckResourceStatus` worker** — reads inventory resources associated with the order:
+Each layer implements the operations **Add / Modify / Delete** per specification. Every operation consists of three workflows, called phases, that the platform runs in this order:
 
-```csharp
-// Queries IResourceInventoryManagement4ApiClient.ListResourcesAsync with
-// RelatedResourceOrderItemResourceOrderId = [romOrderId] per order item.
-// Returns ResourceIds of resources matching the expected status.
-```
-
-**4. Read attributes worker** — after the poll, read characteristics from inventory using the `ResourceId`:
-
-```csharp
-var resource = await rimClient.GetResourceAsync(request.ResourceId, cancellationToken);
-var proxy = resource.ToEntityProxy<MyResourceEntityProxy>(specification);
-// Read proxy properties — output characteristics are in inventory, not in the order
-```
-
-### SOM Fulfillment Workflow Structure
-
-Chain multiple ROM orders sequentially in the SOM workflow:
-
-```
-TriggerA → ROM_PollAndRetry → ReadAttributesA → TriggerB → ROM_PollAndRetry → ... → RetrieveOutputAttributes
-```
-
-Each `ROM_PollAndRetry` is a sub-workflow property typed as `ROM_PollAndRetry` — multiple instances are allowed; ConductorSharp uses the property name as the task reference name.
-
-### Entity Proxy for TMF Characteristics
-
-Generated entity proxies (`*EntityProxy`) provide type-safe access to TMF resource characteristics. They work on both inventory entities (`Resource`) and order entities (`ResourceRefOrValue`). Setting a proxy property writes directly to the entity's `ResourceCharacteristic` list in-place.
-
-```csharp
-// Set characteristics on a new resource for an order (order entity)
-var resource = new ResourceRefOrValue { ... };
-var proxy = resource.ToEntityProxy<MyResourceEntityProxy>(specification);
-proxy.Name = "value";   // writes to resource.ResourceCharacteristic
-
-// Read characteristics from a resource inventory entity (after ROM_PollAndRetry)
-var inventoryResource = await rimClient.GetResourceAsync(resourceId, cancellationToken);
-var outputProxy = inventoryResource.ToEntityProxy<MyResourceEntityProxy>(specification);
-var value = outputProxy.Name;
-```
-
-Both `ResourceRefOrValue` (order) and `Resource` (inventory) have a `ToEntityProxy<T>` extension method generated in `EntityProxyFactory`. Output characteristics come from inventory (read via `IResourceInventoryManagement4ApiClient`), **not** from the order item — the platform writes output attributes to the inventory resource upon order completion.
-
-**Characteristic type coercion:** Output IDs that are semantically `int` (e.g. `CustomerID`) are stored as `string` in TMF characteristics. Always parse with `InvariantCulture`:
-
-```csharp
-int customerId = int.Parse(outputProxy.CustomerID, CultureInfo.InvariantCulture);
-```
-
-### Avoid Tasks for Trivial Computations
-
-Do not create a Conductor worker task solely to perform a simple inline computation (e.g. multiplying a value by a constant). Compute it inside the worker that uses the result. A Conductor task adds serialization overhead and network round-trips that are not justified for logic that fits on one line.
-
-```csharp
-// Wrong: separate Conductor task just to multiply
-// Right: compute inline in the worker that uses it
-inputProxy.SimultaneousCalls = request.MaxSimultaneousCalls * SimultaneousCallsMultiplier;
-```
-
-### Cross-Cluster Constraint
-
-`SignalWait` requires SOM and ROM to connect to the **same Conductor server**. If SOM and ROM run on separate K8s clusters with separate Conductor instances, the `rom_order:{RomOrderId}` signal sent by ROM's Conductor never reaches SOM's waiting task — the `ROM_PollAndRetry` sub-workflow will hang indefinitely.
-
-| Option | Mechanism | Notes |
+| Phase | Purpose | Side effects |
 |---|---|---|
-| **A — Poll TMF652** | SOM periodically calls `GET /resourceOrder/{id}` until terminal state, then reads inventory via TMF639 | Order state is authoritative; requires `WaitSeconds` + retry loop |
-| **B — Poll TMF639** | SOM periodically queries resource inventory until resource appears with expected status | Infers completion from inventory state rather than order state |
-| **C — Shared Conductor** | Single Conductor server accessible from both clusters | No code changes; operational complexity shifts to infrastructure |
+| **Preparation** | Collect everything the later phases need: extract characteristics from the order item, validate them, enrich them (catalog defaults, inventory lookups, current service snapshot). Output is typed data. | None on external systems |
+| **Feasibility** | Pre-flight checks that the change can be made (referenced service exists, not terminated, capacity available) | None |
+| **Fulfillment** | Do the work: trigger resource orders, call southbound systems, write results to inventory | Yes |
 
-> **⚠ Verify topology before implementing fulfillment:** If SOM and ROM are on separate clusters, choose an alternative and update the sub-workflow design before writing any fulfillment code.
+- All three phases always exist for every operation. A phase without work contains a single no-op worker: Conductor rejects a workflow definition without tasks
+- A failure in preparation or feasibility rejects the order before anything was changed. Put every check that can fail cheaply there, before fulfillment starts changing systems
+- Phase workflows are named by convention, with the names held in constants: `<layer>_<operation>_<kind>_<phase>` (for example `mailbox_add_resource_preparation`)
 
-## Integration Testing
+### Data flow between phases
 
-Integration tests submit workflows to a **real Conductor server** running in Docker (via Testcontainers). There are no mocks for workflow execution.
+A phase workflow does not receive the order directly. Its **workflow input** is assembled by the platform from:
 
-### Infrastructure
+1. **Context keys** (typical): the order id, the service or resource id, the whole order item (`item`, with `item.service` or `item.resource`), and for resource workflows the id of the resource instance (`ResourceId`)
+2. **Outputs of earlier phases**, nested under one key per phase, for example `prepare_output`
 
-Create a thin factory subclass — no overrides needed:
+Bind the input with `[JsonPropertyName]`. ConductorSharp uses the name verbatim in the generated expression, so a dotted name is a path into the workflow input:
 
 ```csharp
-public sealed class MyIntegrationTestFactory : IntegrationTestFactory<Program> { }
+public class MailboxAddFulfillmentInput : WorkflowInput<MailboxAddFulfillmentOutput>
+{
+    [JsonPropertyName("service_id")]                              // context key
+    public required string ServiceId { get; set; }
+
+    [JsonPropertyName("prepare_output.order_data.domain_name")]   // <phase key>.<output property>.<field>
+    public required string DomainName { get; set; }
+}
+// wf.WorkflowInput.DomainName  ->  ${workflow.input.prepare_output.order_data.domain_name}
 ```
 
-Wire it up as an xUnit collection fixture with parallelisation disabled:
+Rules that keep the flow maintainable:
+- **Extract once, in preparation.** Parse the order item a single time and emit it as one typed object (`OrderData`, `ResourceData`, `ServiceData`, `EnrichedAttributes`). Later phases bind to those fields and never re-parse the order item
+- Preparation output property names become snake_case path segments (`OrderData` becomes `order_data`), so the output type is a contract: renaming a property breaks the later phases' bindings. Cover it with a test
+- Feasibility and fulfillment can read the outputs of the phases before them through the same dotted names. Whether fulfillment can also read *feasibility* output depends on whether the platform exposes it; if it does not, carry the data in the preparation output instead
+- `required` for mandatory fields, nullable for optional ones
+- Add/Modify operations with identical inputs share an abstract input base class (`FulfillmentInput<TOutput> : WorkflowInput<TOutput>`)
+- Reuse the worker's `Response` type as the workflow output property (`ResourceData = wf.ValidateInput.Output`) instead of copying fields
+
+### Registering the phases with the platform
+
+The platform decides which workflows to run for an order from a **mapping**: (specification id, action) to (preparation, feasibility, fulfillment workflow names). Register it at startup, idempotently (upsert), after the specifications themselves were imported:
+
+```csharp
+// Illustrative: the mapping client API belongs to your order platform
+await mappingClient.UpsertAsync(new WorkflowMapping(
+    SpecificationId: MailboxService.Id,
+    Action: ServiceAction.Add,
+    Preparation: Constants.Workflows.MailboxAdd.Preparation,
+    Feasibility: Constants.Workflows.MailboxAdd.Feasibility,
+    Fulfillment: Constants.Workflows.MailboxAdd.Fulfillment), cancellationToken);
+```
+
+- One `BackgroundService` does: import specifications, then register all mappings. Do not swallow its failure with a log line (the host would run unmapped): retry with backoff or fail startup
+- Adding a workflow means adding its mapping; add a test that every workflow class is mapped and every mapping points at an existing workflow
+
+### Service layer: creating resource orders
+
+A service-layer fulfillment turns the service order into one or more resource orders and follows each through to completion:
+
+```
+TriggerOrderA -> wait for completion -> post-check -> read attributes A
+  -> TriggerOrderB (uses attributes of A) -> wait -> post-check -> read attributes B
+  -> persist output attributes on the service
+```
+
+- Resource orders run **serially** when one needs output of another (an id created by A is an input of B); keep that dependency explicit by feeding `wf.ReadAttributesA.Output.X` into the next trigger request
+- Each trigger worker only creates the order and returns **the order id**. No polling, no inventory reads, no waiting in the worker
+- A trigger builds the resource order from the catalog specification:
+
+```csharp
+var specification = await catalogClient.GetResourceSpecificationAsync(MailboxResource.Id, cancellationToken);
+
+var resource = new ResourceRefOrValue
+{
+    Type = "LogicalResource",
+    Name = $"Mailbox-{request.DomainName}",
+    ResourceSpecification = new ResourceSpecificationRef { Id = MailboxResource.Id, Name = MailboxResource.Name }
+};
+var proxy = resource.ToEntityProxy<MailboxEntityProxy>(specification);   // typed access to characteristics
+proxy.DomainName = request.DomainName;
+proxy.QuotaMb = defaults.QuotaMb;            // configured defaults come from options, not literals
+proxy.MailboxId = 0;                          // output characteristic: placeholder, the resource workflow overwrites it
+
+var order = await orderingClient.CreateResourceOrderAsync(new ResourceOrder_Create
+{
+    State = ResourceOrderStateType.Acknowledged,
+    Description = $"Mailbox create for {request.DomainName}",
+    OrderItem =
+    [
+        new ResourceOrderItem
+        {
+            Id = "1", Quantity = 1,
+            Action = OrderItemActionType.Add,
+            State = ResourceOrderItemStateType.Initial,
+            Resource = resource,
+            ResourceSpecification = new ResourceSpecificationRef { Id = MailboxResource.Id, Name = MailboxResource.Name }
+        }
+    ]
+}, cancellationToken);
+
+return new Response { OrderId = order.Id ?? throw new InvalidOperationException("Resource order was created without an id.") };
+```
+
+  - Set **all mandatory characteristics** at creation: order acceptance usually validates them. Output characteristics that the resource workflow computes later get a non-empty placeholder
+  - Characteristic access goes through typed proxies generated from the catalog specification when the project has them (assigning a proxy property writes into the entity's characteristic list). Without generated proxies, put characteristic access behind one helper class; never scatter characteristic name literals
+  - Defaults the service layer owns (credit limits, quotas, classes) are applied here, so the resource layer can read them from the order (see *Resource layer*)
+- **Modify** orders reference the existing resource: load it from inventory, build the order resource with its `Id`, `Href`, `Type`, `Name`, status and specification, copy the existing characteristics, then apply the changes. Action `Modify`
+- **Delete** orders also carry the target's complete characteristic set, copied from inventory including each characteristic's `ValueType` (a platform that writes order characteristics back onto the inventory record would otherwise erase them). Implement it once as an abstract generic handler (`TriggerDeleteOrderHandler<TRequest, TProxy>`) with abstract members for specification id, order description and log text, and a virtual validation hook that calls `ToEntityProxy` so a mismatching resource fails fast
+- Find the resource a service refers to in preparation (supporting resources of the service instance) and carry its id in the preparation output; fulfillment then triggers the order for exactly that id
+
+**Reading results.** After completion, read output attributes from **resource inventory** by resource id; the resource workflow writes them there, the order itself does not carry them. Characteristic values can come back as strings: parse numbers with `CultureInfo.InvariantCulture`.
+
+**Persisting on the service.** The last fulfillment step merge-patches the service instance (output attributes, name, supporting-resource links). Supporting-resource references copy `Href` and `@type` from the inventory resource instead of synthesising them.
+
+**Snapshot enrichment for Modify and Delete.** If the platform applies the order's service value as a merge-patch on the service inventory, every field missing from the order is erased (name, state, supporting resources, characteristics not on the order). A preparation worker therefore reads the current service from inventory and writes the missing fields into the order item: on Modify only what the order does not already carry, on Delete everything.
+
+### Waiting for resource order completion
+
+Do **not** poll inside a worker: it blocks a worker slot and ties up a Conductor task for the whole duration. Choose one of these designs.
+
+**1. Event-driven wait (preferred).** The ordering service notifies a listener when an order changes state (TMF652 `ResourceOrderStateChangeEvent`); the listener signals the waiting workflow through the `SignalWait` pattern of `ConductorSharp.Patterns`:
+
+```csharp
+// Startup
+.AddSignalWait<PersistentSignalStore>("my_app")      // ISignalStore implementation backed by a database
+
+// Workflow
+public required SignalWait WaitForOrder { get; set; }
+public required OrderPostCheck.Handler OrderPostCheck { get; set; }
+
+_builder.AddTask(
+    wf => wf.WaitForOrder,
+    wf => new SignalWaitInput { SignalKey = $"resource_order:{wf.TriggerMailboxOrder.Output.OrderId}" }
+).AsOptional();
+
+_builder.AddTask(wf => wf.OrderPostCheck, wf => new OrderPostCheck.Request { OrderId = wf.TriggerMailboxOrder.Output.OrderId });
+
+// Notification endpoint (outside the workflow): on a terminal state
+await signalService.SendSignalAsync($"resource_order:{orderId}", TaskResultStatus.COMPLETED, outputData: null, ct);
+```
+
+- Requirements: the listener must be registered with the ordering service (at startup); the signal key is derived from the order id on both sides (constant prefix); use a **persistent** `ISignalStore` in anything but development (`InMemorySignalStore` loses signals on restart and does not work with several replicas)
+- A signal that arrives before the workflow reaches the wait is kept in the store and picked up by the `RegisterWaiter` step or the `SignalSweeperService`; an order that finished while the app was down needs a reconciliation step at startup that re-sends signals for orders already in a terminal state
+- `SignalWaitOutput` is empty: the signal carries no data to the workflow. Read the results from the system of record after the wait
+- **The signal sender and the waiting workflow must use the same Conductor server and signal store.** If the layers run against separate Conductor instances, the signal never reaches the waiting task and the workflow hangs. Verify the topology before writing fulfillment code; otherwise use design 2 or 3
+- If your organisation ships a shared package or sub-workflow that wraps listener, store and wait, use it instead of re-implementing it
+
+**Optional wait plus post-check.** Make the wait `.AsOptional()` and follow it with a post-check worker that **GETs the order** and decides from its state. This keeps the root cause visible: the order's own error message is what fails the service-layer task, instead of an anonymous wait failure.
+
+```csharp
+// Failed, Partial, Held, Cancelled and Rejected are not a successful provision
+if (IsFailedState(order.State))
+{
+    var (code, reason) = FirstCodedError(order);                 // item-level errors first, then order-level
+    throw new StructuredErrorException(code, reason ?? $"Resource order {orderId} failed.", referenceError: null, reason);
+}
+```
+
+**2. Poll the order.** A `DoWhile` loop (or a sub-workflow that restarts itself) with `WaitSeconds` between `GET resourceOrder/{id}` calls until a terminal state. The order state is authoritative. Use a bounded number of attempts and fail with a clear error.
+
+**3. Poll inventory.** Wait until the resource appears with the expected status. Infers completion instead of observing it, so use it only when the order cannot be read.
+
+After any design: verify the resulting resource status (for a Delete the expected status is the terminal one, for example `Suspended`), then read attributes from inventory.
+
+### Resource layer: executing one resource order
+
+Per resource specification and operation, the three phases look like this:
+
+| Phase | Typical work |
+|---|---|
+| Preparation | Validate and extract the characteristics of `item.resource` into `ResourceData`; read configured defaults the service layer put on the order into `EnrichedAttributes`; for Modify/Delete also validate against the current inventory record |
+| Feasibility | No-op, or checks on the resource itself |
+| Fulfillment | Southbound call(s), then record the result in inventory |
+
+- **Input**: the platform-provided resource instance id (`ResourceId`) plus `prepare_output.resource_data.*` and `prepare_output.enriched_attributes.*`
+- **Validate with rules, not scattered ifs**: one rules class declares per characteristic whether it is required and which pattern it must match; the validate worker applies it and throws a validation error
+- **Southbound workers** wrap one client call each, translate the client's exceptions through the error mapper, and return only what later tasks need. Long-running southbound operations are awaited inside the client with a bounded, backoff-based poller, not in the workflow
+- **Idempotency**: a re-run must not duplicate work. Check for the existing remote object first (get-or-create). When a remote id has to survive between orders, keep it on an inventory record keyed by something stable (a tenant or customer id) and read it back
+- **Branching**: use a Switch task for create/update/recreate branches. After the branches, **re-read the authoritative value from one source** in a join step instead of reading it from whichever branch ran
+- **Record the result** in a final worker (`PopulateAttributes`):
+  1. GET the inventory resource first, so the merge-patch does not drop characteristics that are already there
+  2. Keep `@type` (use `LogicalResource` when the GET returned none)
+  3. Set input and output characteristics through the proxy
+  4. Set the resource status (for example `Available`) and `MergePatch` the resource
+  The service layer later reads the output characteristics from this record
+- **Delete**: either a southbound delete followed by a worker that records the final attributes, or a no-op fulfillment when the platform transitions the resource status itself. Do not set a status the platform sets; copy the full characteristic set
+- Idempotent re-create after delete: a southbound object that is deliberately kept stays referenced by its inventory record, so the next Create updates it instead of creating a duplicate
+
+### Layout of an orchestration app
+
+```
+src/
+  <Product>.<Layer>.Application/            # one host per layer, or one host containing both
+    Program.cs
+    <Resource or Service>/
+      Common/        # validation rules, shared workers and input base classes
+      Add/  Modify/  Delete/
+        Workflows/   # <Op>Preparation, <Op>Feasibility, <Op>Fulfillment (+ their Input/Output)
+        Workers/     # one file per worker: Request, Response, Handler
+    Common/          # no-op worker, error mapping behavior, shared constants usage
+    Mappings/        # workflow mappings and the startup service
+  <Product>.Commons/                         # constants (workflow, worker, error code names), options, shared hosting extensions
+  <Product>.Domain/                          # specifications and generated typed proxies; never edited by hand
+test/
+  <Product>.Application.Tests/
+    Unit/            # workers, validation rules, error mapping, workflow build tests
+    Integration/     # workflows against a real Conductor server
+    Support/
+```
+
+## Testing
+
+Workflows run on a Conductor server, so test on three levels.
+
+**1. Worker unit tests.** Construct the `Handler` with fakes or stubs for its clients and call `Handle(request, ct)`. Assert on the response, on thrown exceptions (`StructuredErrorException.Code`), and on what the fake recorded. Cover each validation rule and each branch of a worker.
+
+**2. Workflow definition tests.** Create the workflow with its builder from a service provider (the same registration as production, without a Conductor server) and build its definition, so broken expressions and unsupported constructs fail in a unit test:
+
+```csharp
+var builder = provider.GetRequiredService<WorkflowDefinitionBuilder<MyWorkflow, MyInput, MyOutput>>();
+var workflow = (MyWorkflow)Activator.CreateInstance(typeof(MyWorkflow), builder)!;   // `new` does not compile when task properties are `required`
+var definition = workflow.GetDefinition();                                         // builds the expressions; throws on unsupported constructs
+```
+
+  The generated definition is also the place to pin a contract, for example that an input binding resolves to the expected path:
+  `definition.Tasks[0].InputParameters["domain_name"].ShouldBe("${workflow.input.prepare_output.order_data.domain_name}")`.
+
+  Add one test that enumerates every workflow type by reflection (`[MemberData]`) and builds it, plus the mapping coverage test (every workflow is mapped), plus a test that pins the phase output contract (the dotted input names bind to existing output properties).
+
+**3. Integration tests against a real Conductor server.** Start Conductor (with its Redis and database dependencies) in containers (Testcontainers), start the app through `WebApplicationFactory<Program>` with configuration pointing at the containers, stub external HTTP systems with WireMock, then run the workflow:
 
 ```csharp
 [CollectionDefinition(Name, DisableParallelization = true)]
-public sealed class IntegrationTestCollection : ICollectionFixture<MyIntegrationTestFactory> {
-    public const string Name = "Integration";
-}
+public sealed class IntegrationCollection : ICollectionFixture<IntegrationTestFactory> { public const string Name = "Integration"; }
+
+var workflowId = await workflowService.StartAsync(new StartWorkflowRequest
+{
+    Name = NamingUtil.NameOf<MailboxAddPreparation>(),
+    Input = new Dictionary<string, object> { ["item"] = itemAsDictionary }
+}, ct);
+
+var workflow = await WaitUntilTerminalAsync(workflowId, ct);   // poll IWorkflowService.GetExecutionStatusAsync(id, includeTasks: true) every second, with a timeout
+workflow.Status.ShouldBe(WorkflowStatus.COMPLETED);
 ```
 
-`IntegrationTestFactory<TProgram>` spins up (via Testcontainers):
-- Conductor server (with Redis backend and PostgreSQL)
-- PostgreSQL database
-- Redis
-- All TMF-based domain microservices (service/resource catalog, ordering, inventory, party, geographic site/address management)
+- Assert the **task sequence** (`workflow.Tasks.Select(t => t.TaskDefName)`) and the **output**; the pair is the workflow's contract
+- For expected failures assert on the failing task's output (`error_message`, `errors`) or on the `StructuredErrorException` code, not only on the status
+- Multi-phase flows: run the phases in order with the earlier output nested under the phase key (`{ "prepare_output": {...} }`) as the platform would
+- Workflows that wait on resource orders need something that completes those orders. In integration tests run a small fake order-completion worker (polls pending resource orders, creates or updates inventory, marks the order completed) so the wait unblocks without the real order platform; or send the signal from the test
+- Containers are slow: one collection fixture for the whole suite, parallelisation disabled, workflows named in constants so tests never hard-code strings
 
-The application under test (`Program`) is started via `WebApplicationFactory<TProgram>` with its configuration pointing at the containers. Authentication is replaced with a no-op test handler.
-
-### Running a Workflow
-
-```csharp
-[Collection(IntegrationTestCollection.Name)]
-public class MyWorkflowTests(MyIntegrationTestFactory integrationTestFactory) {
-    [Fact]
-    public async Task MyWorkflow_Should_Complete() {
-        SimpleWorkflowStarter<Program> workflowStarter = new(integrationTestFactory);
-
-        var workflow = await workflowStarter.RunWorkflow(
-            new StartWorkflowRequest {
-                Name = "my_workflow_name",
-                Input = new MyWorkflowInput { /* ... */ }.ToConductorDictionary()
-            },
-            null,    // optional: Func<Workflow, string> to assert a specific output value on completion
-            false    // expectFailure: set true when the workflow is expected to fail
-        );
-    }
-}
-```
-
-`RunWorkflow` starts the workflow on Conductor, then polls `GetExecutionStatusAsync` every second until it reaches a terminal state. `ToConductorDictionary()` serialises the input object to the Conductor-compatible dictionary format (snake_case keys, Newtonsoft serialisation).
-
-### Assertion Styles
-
-**Style 1 — Output string search** (`using Shared.TestUtilities.Extensions`):
-
-Recursively searches all task `OutputData` (including nested dicts, arrays, and `JsonElement`) for an exact string match. Use when testing that a specific value was produced anywhere in the workflow.
-
-```csharp
-// Passes if any task output contains the exact string "ABCDÉ"
-workflow.ShouldContainOutputString("ABCDÉ", "Expected upper-path output.");
-
-// Passes if NO task output contains the string
-workflow.ShouldNotContainOutputString("abcdé", "Lower-path output should not exist.");
-
-// Returns the matching Task, or null — useful for further assertions
-var task = workflow.FindTaskWithOutputString("some_value");
-
-// Dumps all tasks as a formatted string for manual debugging (also included in failure messages)
-string dump = workflow.DumpTasks();
-// → "- ref='task_ref', def='task_def', status='COMPLETED', output={...}"
-```
-
-Failure messages automatically include a `DumpTasks()` dump, showing ref name, def name, status, and output (truncated at 800 chars) for every task.
-
-**Style 2 — Exact output + task sequence** (Shouldly on workflow properties):
-
-Use when the workflow contract (output shape and task order) is what matters, not specific string values.
-
-```csharp
-// Assert the workflow's final output matches exactly
-workflow.Output.ShouldBe(new MyWorkflowOutput { /* ... */ }.ToConductorDictionary());
-
-// Assert the exact sequence of task definition names (order matters)
-workflow.Tasks.Select(t => t.TaskDefName).ShouldBe([
-    "my_first_task",
-    "my_second_task",
-]);
-```
-
-**Style 3 — Failed workflow error extraction**:
-
-When `expectFailure: true`, extract structured error messages from the failed task or workflow output:
-
-```csharp
-var workflow = await workflowStarter.RunWorkflow(request, null, expectFailure: true);
-var errors = workflow.ExtractErrorMessagesFromFailedWorkflow();
-// Extracts from: failed task's output_data["error_message"], output_data["errors"][],
-// or output_data["response"]["errors"][]
-```
-
-### FakeEngine (TMF Order Simulation)
-
-For workflows that interact with TMF service/resource orders, `IntegrationTestFactory` starts a `FakeEngine` background worker. It polls pending service and resource orders every second and auto-completes them (creating inventory entries for `Add` actions, linking existing entities for `Modify`/`Delete`). This unblocks workflows that wait on order completion without needing a real order management engine.
-
-`FakeEngine` is only relevant when your workflow submits TMF orders. Simple workflows (like a `HelloWorldWorkflow`) don't need it and it runs transparently in the background.
 
 ## Known Limitations
 
