@@ -16,6 +16,7 @@ It is pushed to GitHub and meant for general use. Before finishing any change:
 - `stacks/`: language and framework guides (best-practice baseline, repo conventions win over the guide)
 - `commands/`: slash commands (to be migrated to skills and rules)
 - `hooks/`: the git guard hook and its tests
+- `settings/`: the shared part of the user's settings (`settings.shared.json`) and the script that merges it into `~/.claude/settings.json`, with its tests
 - `setup.sh`: links the above into `~/.claude/`; update it whenever a folder is added or moved
 - `README.md`: keep structure, usage and the Sources list in sync with reality
 
@@ -23,4 +24,5 @@ It is pushed to GitHub and meant for general use. Before finishing any change:
 
 - Verify language claims in the guides by compiling or running them, and check them against the official documentation; list consulted documentation in the README Sources
 - Change `hooks/block_git_publish.py` only together with its tests: `python3 -m unittest discover -s hooks -v`
-- `~/.claude/settings.json` holds personal settings and is not tracked here; document needed settings snippets in the README instead
+- `~/.claude/settings.json` holds personal settings and is never tracked or copied here; only `settings/settings.shared.json` (generic, shared parts) is, and `setup.sh` merges it
+- Change `settings/merge_settings.py` only together with its tests: `python3 -m unittest discover -s settings -v`

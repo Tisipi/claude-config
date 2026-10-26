@@ -269,39 +269,25 @@ Why the hook: deny rules match the literal command text. Per the Claude Code doc
 
 Limit: it inspects the command text only. A script that runs `git commit` internally is not caught.
 
-`setup.sh` links `hooks/` to `~/.claude/hooks`. `settings.json` holds personal settings and is not tracked, so add this to it by hand on each machine (merge with existing keys):
+### Shared settings
 
-```json
-{
-  "permissions": {
-    "deny": [
-      "Bash(git commit *)", "Bash(git push *)", "Bash(git tag *)", "Bash(git rebase *)",
-      "Bash(git merge *)", "Bash(git cherry-pick *)", "Bash(git revert *)",
-      "Bash(gh pr create *)", "Bash(gh pr merge *)"
-    ],
-    "ask": [
-      "Bash(git reset --hard *)", "Bash(git clean *)", "Bash(git checkout -- *)", "Bash(git restore *)",
-      "Bash(git branch -D *)", "Bash(git stash drop *)", "Bash(git stash clear *)"
-    ]
-  },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "python3 -I ~/.claude/hooks/block_git_publish.py" }]
-      }
-    ]
-  }
-}
-```
+`~/.claude/settings.json` holds personal settings (voice, plugins, model, permission mode, and every "don't ask again" rule Claude Code adds), so it is **not** tracked. Only the shared part lives in this repo, in `settings/settings.shared.json`: the deny and ask rules above and the hook registration.
+
+`setup.sh` links `hooks/` to `~/.claude/hooks` and merges the shared file into `~/.claude/settings.json` with `settings/merge_settings.py`:
+- Additive: lists are unioned, objects merged recursively, existing scalar values win. Nothing you already have is removed or overridden
+- Idempotent: running it again changes nothing. When it does change the file, the previous version is saved as `settings.json.bak`
+- Invalid JSON in `settings.json` aborts the merge and leaves the file untouched
+- Preview without writing: `python3 settings/merge_settings.py --dry-run`
+- Limit: list entries are matched by equality, so if a shared hook command is ever changed, the old entry has to be removed from `settings.json` by hand
 
 Tests (stdlib only), run from the repo root:
 
 ```bash
 python3 -m unittest discover -s hooks -v
+python3 -m unittest discover -s settings -v
 ```
 
-Change the hook only together with its tests. To verify the guard in a live session, run `git -C . commit --dry-run`: it must be blocked.
+Change the hook and the merge script only together with their tests. To verify the guard in a live session, run `git -C . commit --dry-run`: it must be blocked.
 
 ## Adding New Stacks
 
