@@ -19,7 +19,9 @@ This creates symlinks from `~/.claude/` to this repository.
 
 ```
 claude-config/
-├── CLAUDE.md              # Global instructions (applies to all projects)
+├── CLAUDE.md              # Instructions for working on this repo itself
+├── global/
+│   └── CLAUDE.md          # Global instructions (applies to all projects, linked to ~/.claude/)
 ├── commands/              # Custom slash commands
 │   ├── hone-idea.md       # /hone-idea - Develop spec through Q&A
 │   ├── plan.md            # /plan - Generate implementation plan
@@ -255,7 +257,7 @@ Use `sg` for finding patterns, refactoring code, and understanding code structur
 
 ## Safety Guards
 
-Claude never commits or pushes: the user does all version control. `CLAUDE.md` states the rule, but instructions are advisory, so it is enforced in three layers:
+Claude never commits or pushes: the user does all version control. `global/CLAUDE.md` states the rule, but instructions are advisory, so it is enforced in three layers:
 
 | Layer | Where | What it does |
 |---|---|---|

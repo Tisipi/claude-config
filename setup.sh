@@ -7,8 +7,8 @@ CLAUDE_DIR="$HOME/.claude"
 # Create ~/.claude if it doesn't exist
 mkdir -p "$CLAUDE_DIR"
 
-# Symlink CLAUDE.md
-ln -sf "$SCRIPT_DIR/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
+# Symlink global instructions (the repo root CLAUDE.md is for this repo itself)
+ln -sf "$SCRIPT_DIR/global/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
 
 # Symlink commands directory
 ln -sf "$SCRIPT_DIR/commands" "$CLAUDE_DIR/commands"
