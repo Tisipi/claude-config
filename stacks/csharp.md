@@ -182,7 +182,7 @@ General rules (TDD, unit + integration + e2e, real data over mocks) are in CLAUD
 
 ### Stack and principles
 - **xUnit** (v3 for new projects), **Shouldly** (assertion-first), **WireMock.Net** (in-process) for HTTP dependencies, **Testcontainers** for real databases/brokers/servers
-- Mocking library: match the project. NSubstitute and Moq are both fine; greenfield default is NSubstitute (clearer API)
+- Mocking library: match the project. Moq and NSubstitute are both fine; greenfield default is Moq (the most widely used)
 - Prefer, in order: real thing (WireMock/Testcontainers) → hand-written fake → mock. Mock only what is external to the class under test. Never mock the project's own HTTP client abstraction when a WireMock test can exercise the real one
 - Prefer strongly typed builders and helpers over reflection-based test helpers
 - Assert on outcomes and captured arguments; avoid interaction call-counting (`Verify(..., Times.X)`) unless the interaction *is* the behaviour
