@@ -4,7 +4,7 @@ For each issue:
 1. Locate the file and problem area
 2. Implement the suggested fix or your own solution
 3. Test the fix if applicable
-4. Commit changes with a message referencing the issue.
+4. Do not commit: leave the changes in the working tree and suggest a commit message for me
 
 After all issues are fixed:
 1. Delete review-comments.md

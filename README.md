@@ -22,6 +22,14 @@ claude-config/
 ├── CLAUDE.md              # Instructions for working on this repo itself
 ├── global/
 │   └── CLAUDE.md          # Global instructions (applies to all projects, linked to ~/.claude/)
+├── hooks/
+│   ├── block_git_publish.py        # PreToolUse hook: blocks git commit/push and friends
+│   └── test_block_git_publish.py   # Its tests
+├── settings/
+│   ├── settings.shared.json        # Shared, generic part of ~/.claude/settings.json
+│   ├── merge_settings.py           # Merges it into ~/.claude/settings.json (additive)
+│   └── test_merge_settings.py      # Its tests
+├── setup.sh               # Links everything into ~/.claude/ and merges the shared settings
 ├── commands/              # Custom slash commands
 │   ├── hone-idea.md       # /hone-idea - Develop spec through Q&A
 │   ├── plan.md            # /plan - Generate implementation plan
@@ -42,6 +50,8 @@ claude-config/
     ├── java.md
     ├── csharp.md
     └── conductor-sharp.md
+
+`CLAUDE.md` in `~/.claude/` is a link to `global/CLAUDE.md`; the `CLAUDE.md` in the repo root only applies when working on this repo.
 ```
 
 ## Usage
@@ -60,21 +70,18 @@ In any project, run the relevant stack command:
 
 ```
 1. /hone-idea      Start Q&A to develop requirements
-                   Model: Conversational (GPT-4o, Claude)
                    → Creates: spec.md
 
 2. /plan           Generate implementation plan from spec
-                   Model: Reasoning (o1, o3, r1)
                    → Creates: prompt_plan.md, todo.md
 
 3. /continue       Execute next step (repeat until done)
-                   Model: Claude Code
                    → Implements step with TDD
-                   → Commits changes
                    → Updates todo.md
-
-Note: models are outdated 
+                   → Leaves the changes uncommitted: you review and commit
 ```
+
+Use any current model for these steps; a more capable one pays off for `/plan`.
 
 ### Working on Existing Projects (Brownfield)
 
@@ -135,7 +142,7 @@ repomix /path/to/csharp-project --output context.md \
 
 - **TDD**: Write tests before implementation
 - **Small steps**: Each step should be self-contained
-- **Commit often**: After each completed step
+- **You commit**: Claude never commits or pushes (see Safety Guards); commit after reviewing each completed step
 - **spec.md**: Source of truth for requirements
 - **prompt_plan.md**: Step-by-step implementation guide
 - **todo.md**: Track progress with checkboxes
@@ -197,11 +204,8 @@ repomix /path/to/csharp-project --output context.md \
 /fix-security-issues     # Fix vulnerabilities
 ```
 
-### Targeted Review Workflows
+### Targeted Review Workflow
 ```bash
-# Review specific area for issues
-/review-area             # (after specifying area)
-
 # Deep dive into security concerns
 /security-review-area    # (after specifying area of concern)
 ```
@@ -257,7 +261,7 @@ Use `sg` for finding patterns, refactoring code, and understanding code structur
 
 ## Safety Guards
 
-Claude never commits or pushes: the user does all version control. `global/CLAUDE.md` states the rule, but instructions are advisory, so it is enforced in three layers:
+Claude never commits or pushes: the user does all version control. Unrelated bugs Claude notices while working are appended to `ISSUES.md` in the project root instead of being fixed on the side. `global/CLAUDE.md` states the rule, but instructions are advisory, so it is enforced in three layers:
 
 | Layer | Where | What it does |
 |---|---|---|
@@ -293,7 +297,7 @@ Change the hook and the merge script only together with their tests. To verify t
 
 1. Create a new file in `stacks/` (e.g., `typescript.md`)
 2. Create a corresponding command in `commands/` (e.g., `use-typescript.md`)
-3. Commit and push
+3. Review the change; you commit and push
 
 
 ## Sources
@@ -316,15 +320,5 @@ Claude Code documentation (consulted 2026-10-26):
 Plugins.   
 Skills.   
 Pre-commit hooks.   
-Block dangerous git commands.   
 
-**TODO: update this README once the modernisation is done.** It is stale in at least these places:
-
-- Structure and Usage: `commands/` and `stacks/` will become skills and rules (see the modernisation plan)
-- `setup.sh` description: it must also link the new skills/rules folders
-- Greenfield workflow: names outdated models and says `/continue` commits, which contradicts the "never commit or push" rule in `CLAUDE.md`
-- "Key Principles" says "Commit often" (same contradiction)
-- "Adding New Stacks" ends with "Commit and push"
-- "Targeted Review Workflows" mentions `/review-area`, which does not exist
-- Structure tree: add the `hooks/` folder (the git guard itself is documented under Safety Guards)
-- Sources: keep the Claude documentation list above in sync with what was actually consulted
+**TODO:** once `commands/` and `stacks/` become skills and rules, update Structure, Usage and `setup.sh` (it must link the new folders).

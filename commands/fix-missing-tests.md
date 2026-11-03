@@ -5,7 +5,7 @@ For each missing test:
 2. Write the test case based on the specification in missing-tests.md
 3. Run the test to verify it fails (or that it passes if code is already correct)
 4. Ensure the test covers the scenario described
-5. Commit changes with a message referencing the test added
+5. Do not commit: leave the changes in the working tree and suggest a commit message for me
 
 After all tests are implemented:
 1. Delete missing-tests.md
