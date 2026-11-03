@@ -604,6 +604,9 @@ await signalService.SendSignalAsync($"order:{orderId}", TaskResultStatus.COMPLET
 - A signal sent before the workflow waits is stored and delivered later; `SignalSweeperService` completes stragglers
 - `SignalWaitOutput` is empty: read results from the system of record after the wait
 - Sender and workflow must talk to the same Conductor server and share the store
+- `AddSignalWait` also registers the `SignalWait` workflow, the `RegisterWaiter` worker and the sweeper: do not register them again
+- Signal keys are business identifiers that sender and workflow can both derive (`order:{orderId}`, `approval:{requestId}`), unique per wait; a constant prefix avoids collisions between flows
+- A persistent `ISignalStore` implements five methods: `RegisterWaiterAsync`, `RegisterSignalAsync(key, status, outputData)`, `GetResolvableEntriesAsync` (waiter and signal both present), `GetPendingWaitersAsync` and `DeleteAsync`. Both registrations are upserts keyed by signal key, because either side can arrive first. `RegisterWaiter` runs with `ConcurrentExecLimit = 1` and 10 retries, but with several replicas the store itself must still be safe under concurrent calls (unique key, upsert)
 - Design guidance and failure handling: *Waiting for resource order completion*
 
 ## Kafka Cancellation Notifier
@@ -633,6 +636,9 @@ dotnet-conductorsharp                          # all tasks and workflows
 dotnet-conductorsharp -n domain_get_customer   # filter by name
 dotnet-conductorsharp -e team@example.com      # filter by owner email
 dotnet-conductorsharp --no-tasks               # skip tasks
+dotnet-conductorsharp -a my-application        # filter by owner app
+dotnet-conductorsharp --no-workflows           # skip workflows
+dotnet-conductorsharp -f other.yaml            # custom config file
 dotnet-conductorsharp --dry-run                # preview only
 ```
 
