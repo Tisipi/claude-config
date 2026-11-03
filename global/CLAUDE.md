@@ -80,6 +80,12 @@ Default: complete the task fully, without asking for confirmation, and report wh
 - If I ask for a commit message, explain the "why", not just the "what", and don't mention Claude as author
 - Work from the branch I selected for you. If it is a main, dev(elop) or release branch, stop working and inform me (unless I or the project's CLAUDE.md say otherwise)
 
+## Verification & Context
+
+- Before reporting work as done, verify it: run the tests, build and linter that apply, or exercise the changed path, and report the actual result. If something could not be verified, say so
+- When context is compacted, keep: the files changed, failing tests and their output, decisions taken and why, and open `ISSUES.md` items
+- Notes that are personal to me and not for the team belong in the project's `CLAUDE.local.md` (gitignored), not in `CLAUDE.md`
+
 ## General Development Principles
 
 ### Complexity & Code Quality
