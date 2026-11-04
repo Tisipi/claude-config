@@ -1,3 +1,13 @@
+---
+paths:
+  - "**/*.cs"
+  - "**/*.csproj"
+  - "**/*.sln"
+  - "**/*.slnx"
+  - "**/Directory.*.props"
+  - "**/.editorconfig"
+---
+
 # C# Development Conventions
 
 Targets .NET 10 / C# 14. For general principles (TDD, error handling, comments, magic numbers) see CLAUDE.md; this file adds the C#-specific detail.

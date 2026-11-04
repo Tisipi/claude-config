@@ -1,3 +1,11 @@
+---
+paths:
+  - "**/*.java"
+  - "**/pom.xml"
+  - "**/*.gradle"
+  - "**/*.gradle.kts"
+---
+
 # Java Development Conventions
 
 ## Language

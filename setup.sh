@@ -13,8 +13,22 @@ ln -sf "$SCRIPT_DIR/global/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
 # Symlink commands directory
 ln -sfn "$SCRIPT_DIR/commands" "$CLAUDE_DIR/commands"
 
-# Symlink stacks directory
-ln -sfn "$SCRIPT_DIR/stacks" "$CLAUDE_DIR/stacks"
+# Retired: stacks/ became rules/ and skills/. Remove the old link only if it points into this repo
+if [ -L "$CLAUDE_DIR/stacks" ] && [[ "$(readlink "$CLAUDE_DIR/stacks")" == "$SCRIPT_DIR/"* ]]; then
+    rm "$CLAUDE_DIR/stacks"
+fi
+
+# Symlink each skill folder; other skills in ~/.claude/skills stay untouched
+mkdir -p "$CLAUDE_DIR/skills"
+for skill in "$SCRIPT_DIR"/skills/*/; do
+    ln -sfn "${skill%/}" "$CLAUDE_DIR/skills/$(basename "$skill")"
+done
+
+# Symlink each rule file (path-scoped language guides); other files in ~/.claude/rules stay untouched
+mkdir -p "$CLAUDE_DIR/rules"
+for rule in "$SCRIPT_DIR"/rules/*.md; do
+    ln -sf "$rule" "$CLAUDE_DIR/rules/$(basename "$rule")"
+done
 
 # Symlink hooks directory (git guard referenced from ~/.claude/settings.json)
 ln -sfn "$SCRIPT_DIR/hooks" "$CLAUDE_DIR/hooks"
