@@ -1,3 +1,9 @@
+---
+name: security-review-full
+description: Review the whole codebase for security vulnerabilities; findings go to security-issues.md.
+disable-model-invocation: true
+---
+
 Use a subagent to review all code in the project for security vulnerabilities.
 
 Focus on:

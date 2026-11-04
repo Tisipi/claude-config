@@ -1,3 +1,9 @@
+---
+name: repomix
+description: Generate a repomix command for an LLM-friendly dump of a repository.
+disable-model-invocation: true
+---
+
 Generate a `repomix` command the user can copy/paste to produce an LLM-friendly repository dump.
 
 Ask the user:

@@ -1,3 +1,9 @@
+---
+name: continue
+description: Implement the next unfinished step from prompt_plan.md and todo.md with TDD, without committing.
+disable-model-invocation: true
+---
+
 Open prompt_plan.md and todo.md. Identify the next prompt not marked as completed.
 
 1. Implement it as described

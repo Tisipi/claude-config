@@ -70,17 +70,21 @@ class SetupScriptTests(unittest.TestCase):
 
         self.assertEqual("mine", personal.read_text())
 
-    def test_removes_the_retired_stacks_link_but_not_a_foreign_one(self):
-        self.claude.mkdir()
-        os.symlink(REPO / "stacks", self.claude / "stacks")
-        self.run_setup()
-        self.assertFalse((self.claude / "stacks").is_symlink())
+    def test_removes_retired_links_into_the_repo_but_not_foreign_ones(self):
+        for retired in ("stacks", "commands"):
+            with self.subTest(retired=retired):
+                self.claude.mkdir(exist_ok=True)
+                link = self.claude / retired
+                os.symlink(REPO / retired, link)
+                self.run_setup()
+                self.assertFalse(link.is_symlink())
 
-        foreign = self.home / "elsewhere"
-        foreign.mkdir()
-        os.symlink(foreign, self.claude / "stacks")
-        self.run_setup()
-        self.assertTrue((self.claude / "stacks").is_symlink())
+                foreign = self.home / f"elsewhere-{retired}"
+                foreign.mkdir()
+                os.symlink(foreign, link)
+                self.run_setup()
+                self.assertTrue(link.is_symlink())
+                link.unlink()
 
     def test_rules_are_scoped_to_their_language_files(self):
         csharp = (REPO / "rules" / "csharp.md").read_text()
@@ -99,6 +103,15 @@ class SkillFileTests(unittest.TestCase):
                 description = next(l for l in front.splitlines() if l.startswith("description:"))
                 self.assertLessEqual(len(description), 1536)
                 self.assertLess(len(text.splitlines()), 500)
+
+    def test_no_skill_tells_claude_to_commit_or_push(self):
+        for skill in (REPO / "skills").rglob("*.md"):
+            for number, line in enumerate(skill.read_text().splitlines(), 1):
+                with self.subTest(file=skill.name, line=number):
+                    lowered = line.lower()
+                    if "commit" in lowered or "push" in lowered:
+                        allowed = ("do not commit", "never", "without committing", "uncommitted", "suggest a commit message")
+                        self.assertTrue(any(phrase in lowered for phrase in allowed), line)
 
     def test_skill_links_to_reference_files_resolve(self):
         import re

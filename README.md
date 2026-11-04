@@ -33,21 +33,18 @@ claude-config/
 ├── rules/                 # Language guides, path-scoped: load when Claude touches matching files
 │   ├── csharp.md          # *.cs, *.csproj, .editorconfig, ...
 │   └── java.md            # *.java, pom.xml, *.gradle
-├── skills/                # One folder per skill (SKILL.md + optional reference files)
-│   └── conductor-sharp/   # ConductorSharp guide: SKILL.md + task-types, configuration, orchestration, testing
-├── commands/              # Slash commands still to be migrated to skills
-│   ├── hone-idea.md       # /hone-idea - Develop spec through Q&A
-│   ├── plan.md            # /plan - Generate implementation plan
-│   ├── continue.md        # /continue - Execute next step
-│   ├── review-session.md  # /review-session - Review code for issues
-│   ├── review-fix.md      # /review-fix - Fix issues from review-comments.md
-│   ├── find-missing-tests.md       # /find-missing-tests - Identify missing test cases
-│   ├── fix-missing-tests.md        # /fix-missing-tests - Implement missing tests
-│   ├── security-review-full.md     # /security-review-full - Full codebase security review
-│   ├── security-review-area.md     # /security-review-area - Targeted security review
-│   ├── fix-security-issues.md      # /fix-security-issues - Fix security vulnerabilities
-│   ├── diagram.md         # /diagram - Create architecture diagram
-│   └── repomix.md         # /repomix - Generate LLM-friendly repository dump
+├── skills/                # One folder per skill: SKILL.md (+ optional reference files)
+│   ├── conductor-sharp/   # ConductorSharp guide: SKILL.md + task-types, configuration, orchestration, testing
+│   ├── hone-idea/         # /hone-idea - Develop spec through Q&A
+│   ├── plan/              # /plan - Generate implementation plan
+│   ├── continue/          # /continue - Execute next step
+│   ├── find-missing-tests/    # /find-missing-tests - Identify missing test cases
+│   ├── fix-missing-tests/     # /fix-missing-tests - Implement missing tests
+│   ├── security-review-full/  # /security-review-full - Full codebase security review
+│   ├── security-review-area/  # /security-review-area - Targeted security review
+│   ├── fix-security-issues/   # /fix-security-issues - Fix security vulnerabilities
+│   ├── diagram/           # /diagram - Create architecture diagram
+│   └── repomix/           # /repomix - Generate LLM-friendly repository dump
 └── tests/
     └── test_setup.py      # Runs setup.sh against a throwaway HOME
 ```
@@ -144,7 +141,7 @@ repomix /path/to/csharp-project --output context.md \
 - **prompt_plan.md**: Step-by-step implementation guide
 - **todo.md**: Track progress with checkboxes
 
-## Available Commands
+## Available Skills (slash commands)
 
 ### Greenfield (New Project Development)
 
@@ -158,13 +155,13 @@ repomix /path/to/csharp-project --output context.md \
 
 | Command | Purpose | Output File |
 |---------|---------|------------|
-| `/review-session` | Review code for bugs, clarity, and issues | `review-comments.md` |
-| `/review-fix` | Fix issues from review-comments.md | — |
 | `/find-missing-tests` | Identify missing test cases | `missing-tests.md` |
 | `/fix-missing-tests` | Implement missing tests | — |
 | `/security-review-full` | Full codebase security review | `security-issues.md` |
-| `/security-review-area` | Security review of specific code area | `security-issues.md` |
+| `/security-review-area <area>` | Security review of a specific code area | `security-issues.md` |
 | `/fix-security-issues` | Fix security vulnerabilities | — |
+
+For reviewing code changes, use the built-in `/code-review` (add `--fix` to apply the findings) and `/security-review` (pending changes on the branch). The skills above cover what those do not: whole-codebase and per-area security reviews, and missing-test analysis.
 
 ### Architecture & Documentation
 
@@ -189,8 +186,7 @@ Not commands: see Usage above (`rules/` and `skills/`).
 
 ### Code Quality Workflow Example
 ```bash
-/review-session           # Identify issues → review-comments.md
-/review-fix              # Fix reported issues
+/code-review --fix       # Built-in: review the current changes and apply the findings
 /find-missing-tests      # Identify gaps → missing-tests.md
 /fix-missing-tests       # Implement missing tests
 /security-review-full    # Check security → security-issues.md
@@ -305,7 +301,7 @@ Claude Code documentation (consulted 2026-10-26):
 
 - https://code.claude.com/docs/en/memory (CLAUDE.md, `.claude/rules/`, auto memory)
 - https://code.claude.com/docs/en/best-practices (writing an effective CLAUDE.md, verification, hooks, skills)
-- https://code.claude.com/docs/en/skills (SKILL.md format, commands merged into skills)
+- https://code.claude.com/docs/en/skills (SKILL.md format, frontmatter, commands merged into skills)
 
 
 ## Notes and Things to do
@@ -314,5 +310,4 @@ Plugins.
 Skills.   
 Pre-commit hooks.   
 
-**TODO:** migrate the remaining `commands/` to skills (then update Structure and `setup.sh`).
 **TODO:** document rollback phases (preparation, feasibility, fulfillment rollback) in the ConductorSharp orchestration chapter.

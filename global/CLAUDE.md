@@ -40,7 +40,7 @@ Default: complete the task fully, without asking for confirmation, and report wh
 
 - **Project Structure**: Read the project's `README.md`, if present, to understand the high-level goals. If the project has no `CLAUDE.md`, create one (as `/init` would).
 - **Tech Stacks**: C# and Java guides are path-scoped rules in `~/.claude/rules/` and load when I touch matching files. The ConductorSharp guide is the `conductor-sharp` skill and loads when the task involves Conductor workflows
-- **Specialized Workflows**: Reviews, security reviews and missing-test analysis exist as slash commands (`/review-session`, `/security-review-full`, `/security-review-area`, `/find-missing-tests`). Suggest the relevant one instead of improvising an ad-hoc review.
+- **Specialized Workflows**: Code review (`/code-review`, `--fix` applies the findings), security review of changes (`/security-review`), whole-codebase and per-area security review (`/security-review-full`, `/security-review-area`) and missing-test analysis (`/find-missing-tests`) exist as slash commands. Suggest the relevant one instead of improvising an ad-hoc review.
 
 ## Code Standards
 

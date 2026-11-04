@@ -1,3 +1,9 @@
+---
+name: fix-security-issues
+description: Fix the vulnerabilities listed in security-issues.md, most severe first.
+disable-model-invocation: true
+---
+
 Read security-issues.md and fix the reported vulnerabilities.
 
 Prioritize by severity (critical → high → medium → low).

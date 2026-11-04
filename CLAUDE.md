@@ -14,8 +14,7 @@ It is pushed to GitHub and meant for general use. Before finishing any change:
 
 - `global/CLAUDE.md`: the user-level instructions (keep them short, concrete, free of duplicates and contradictions)
 - `rules/`: language guides as path-scoped rules (best-practice baseline, repo conventions win over the guide); each needs a `paths:` frontmatter
-- `skills/`: one folder per skill; `SKILL.md` under 500 lines with a specific `description`, detail in linked reference files
-- `commands/`: slash commands still to be migrated to skills
+- `skills/`: one folder per skill (`SKILL.md` under 500 lines, specific `description`, detail in linked reference files); workflow skills that only the user triggers set `disable-model-invocation: true`. No skill may tell Claude to commit or push
 - `hooks/`: the git guard hook and its tests
 - `settings/`: the shared part of the user's settings (`settings.shared.json`) and the script that merges it into `~/.claude/settings.json`, with its tests
 - `tests/`: tests for `setup.sh`

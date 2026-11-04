@@ -10,13 +10,12 @@ mkdir -p "$CLAUDE_DIR"
 # Symlink global instructions (the repo root CLAUDE.md is for this repo itself)
 ln -sf "$SCRIPT_DIR/global/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
 
-# Symlink commands directory
-ln -sfn "$SCRIPT_DIR/commands" "$CLAUDE_DIR/commands"
-
-# Retired: stacks/ became rules/ and skills/. Remove the old link only if it points into this repo
-if [ -L "$CLAUDE_DIR/stacks" ] && [[ "$(readlink "$CLAUDE_DIR/stacks")" == "$SCRIPT_DIR/"* ]]; then
-    rm "$CLAUDE_DIR/stacks"
-fi
+# Retired: stacks/ became rules/ and skills/, commands/ became skills/. Remove an old link only if it points into this repo
+for retired in stacks commands; do
+    if [ -L "$CLAUDE_DIR/$retired" ] && [[ "$(readlink "$CLAUDE_DIR/$retired")" == "$SCRIPT_DIR/"* ]]; then
+        rm "$CLAUDE_DIR/$retired"
+    fi
+done
 
 # Symlink each skill folder; other skills in ~/.claude/skills stay untouched
 mkdir -p "$CLAUDE_DIR/skills"

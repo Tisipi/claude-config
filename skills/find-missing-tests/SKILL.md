@@ -1,3 +1,9 @@
+---
+name: find-missing-tests
+description: Review the whole project and list missing test cases in missing-tests.md.
+disable-model-invocation: true
+---
+
 Use a subagent to review all code in the project and identify missing test cases.
 
 For each file or module, identify:

@@ -1,3 +1,9 @@
+---
+name: fix-missing-tests
+description: Implement the test cases listed in missing-tests.md.
+disable-model-invocation: true
+---
+
 Read missing-tests.md and implement the identified test cases.
 
 For each missing test:

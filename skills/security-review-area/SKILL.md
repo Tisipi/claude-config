@@ -1,8 +1,15 @@
+---
+name: security-review-area
+description: Review one area of the codebase for security vulnerabilities; findings go to security-issues.md.
+disable-model-invocation: true
+argument-hint: "[files, directory or concern to review]"
+---
+
 Use a subagent to review a specific area of the codebase for security vulnerabilities.
 
-**User to specify (before running this command):**
-- The specific files, directories, modules, or features to review
-- Any particular security concerns or vulnerability types to focus on
+Area and concerns to review: $ARGUMENTS
+
+If no area was given, ask which files, directories, modules or features to review and which vulnerability types to focus on before starting.
 
 Focus on:
 - **SQL Injection & Database Security** — Parameterized queries, prepared statements, ORM safe usage

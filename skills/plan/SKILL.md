@@ -1,3 +1,9 @@
+---
+name: plan
+description: Turn spec.md into a TDD implementation plan: prompt_plan.md and todo.md.
+disable-model-invocation: true
+---
+
 Read the spec.md file and create a detailed implementation plan.
 
 Break down the work into small, incremental prompts. Each prompt should:

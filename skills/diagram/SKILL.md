@@ -1,3 +1,9 @@
+---
+name: diagram
+description: Create a Graphviz architecture diagram (project.dot and project.svg) from the spec and plan files.
+disable-model-invocation: true
+---
+
 Read spec.md, prompt_plan.md, and other relevant project files. Create a Graphviz `.dot` file that visually represents the project architecture, components, dependencies, and data flows.
 
 The diagram should clearly show:
