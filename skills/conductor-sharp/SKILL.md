@@ -360,5 +360,5 @@ Read the one that matches the task; each is self-contained.
 
 - [task-types.md](task-types.md): every task type with code (simple, sub-workflow, switch, dynamic, fork-join, do-while, lambda, wait, terminate, human, JQ, passthrough, optional)
 - [configuration.md](configuration.md): service registration, assembly registration, multiple instances, polling, health checks, API services, Patterns package (WaitSeconds, ReadWorkflowTasks, C# lambda, SignalWait), Kafka cancellation, Toolkit CLI
-- [orchestration.md](orchestration.md): multi-phase order orchestration: phases, data flow between phases, creating and awaiting resource orders, resource layer, rollback phases, app layout
+- [orchestration.md](orchestration.md): multi-phase order orchestration: phases, data flow between phases, creating and awaiting resource orders, resource layer, rollback phases, app layouts
 - [testing.md](testing.md): worker unit tests, workflow definition tests, integration tests against a containerised Conductor
