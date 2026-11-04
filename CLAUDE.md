@@ -13,10 +13,12 @@ It is pushed to GitHub and meant for general use. Before finishing any change:
 ## Layout
 
 - `global/CLAUDE.md`: the user-level instructions (keep them short, concrete, free of duplicates and contradictions)
-- `stacks/`: language and framework guides (best-practice baseline, repo conventions win over the guide)
-- `commands/`: slash commands (to be migrated to skills and rules)
+- `rules/`: language guides as path-scoped rules (best-practice baseline, repo conventions win over the guide); each needs a `paths:` frontmatter
+- `skills/`: one folder per skill; `SKILL.md` under 500 lines with a specific `description`, detail in linked reference files
+- `commands/`: slash commands still to be migrated to skills
 - `hooks/`: the git guard hook and its tests
 - `settings/`: the shared part of the user's settings (`settings.shared.json`) and the script that merges it into `~/.claude/settings.json`, with its tests
+- `tests/`: tests for `setup.sh`
 - `setup.sh`: links the above into `~/.claude/`; update it whenever a folder is added or moved
 - `README.md`: keep structure, usage and the Sources list in sync with reality
 
@@ -25,4 +27,5 @@ It is pushed to GitHub and meant for general use. Before finishing any change:
 - Verify language claims in the guides by compiling or running them, and check them against the official documentation; list consulted documentation in the README Sources
 - Change `hooks/block_git_publish.py` only together with its tests: `python3 -m unittest discover -s hooks -v`
 - `~/.claude/settings.json` holds personal settings and is never tracked or copied here; only `settings/settings.shared.json` (generic, shared parts) is, and `setup.sh` merges it
+- Change `setup.sh` only together with `tests/test_setup.py`: `python3 -m unittest discover -s tests -v`
 - Change `settings/merge_settings.py` only together with its tests: `python3 -m unittest discover -s settings -v`

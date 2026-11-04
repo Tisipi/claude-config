@@ -30,7 +30,12 @@ claude-config/
 │   ├── merge_settings.py           # Merges it into ~/.claude/settings.json (additive)
 │   └── test_merge_settings.py      # Its tests
 ├── setup.sh               # Links everything into ~/.claude/ and merges the shared settings
-├── commands/              # Custom slash commands
+├── rules/                 # Language guides, path-scoped: load when Claude touches matching files
+│   ├── csharp.md          # *.cs, *.csproj, .editorconfig, ...
+│   └── java.md            # *.java, pom.xml, *.gradle
+├── skills/                # One folder per skill (SKILL.md + optional reference files)
+│   └── conductor-sharp/   # ConductorSharp guide: SKILL.md + task-types, configuration, orchestration, testing
+├── commands/              # Slash commands still to be migrated to skills
 │   ├── hone-idea.md       # /hone-idea - Develop spec through Q&A
 │   ├── plan.md            # /plan - Generate implementation plan
 │   ├── continue.md        # /continue - Execute next step
@@ -42,27 +47,19 @@ claude-config/
 │   ├── security-review-area.md     # /security-review-area - Targeted security review
 │   ├── fix-security-issues.md      # /fix-security-issues - Fix security vulnerabilities
 │   ├── diagram.md         # /diagram - Create architecture diagram
-│   ├── use-java.md        # /use-java - Load Java conventions
-│   ├── use-csharp.md      # /use-csharp - Load C# conventions
-│   ├── use-conductor-sharp.md  # /use-conductor-sharp - Load ConductorSharp conventions
-│   └── repomix.md       # /repomix - Generate LLM-friendly repository dump
-└── stacks/                # Stack-specific instructions
-    ├── java.md
-    ├── csharp.md
-    └── conductor-sharp.md
+│   └── repomix.md         # /repomix - Generate LLM-friendly repository dump
+└── tests/
+    └── test_setup.py      # Runs setup.sh against a throwaway HOME
+```
 
 `CLAUDE.md` in `~/.claude/` is a link to `global/CLAUDE.md`; the `CLAUDE.md` in the repo root only applies when working on this repo.
-```
 
 ## Usage
 
-In any project, run the relevant stack command:
+Language guides and the ConductorSharp guide load on their own:
 
-```
-/use-java
-/use-csharp
-/use-conductor-sharp
-```
+- **C# and Java** are path-scoped rules. They load the first time Claude reads, writes or edits a matching file (`*.cs`, `*.java`, ...), not at session start
+- **ConductorSharp** is a skill: Claude loads it when the task involves Conductor workflows. Its larger reference files are read only when needed
 
 ## Development Workflow
 
@@ -86,8 +83,8 @@ Use any current model for these steps; a more capable one pays off for `/plan`.
 ### Working on Existing Projects (Brownfield)
 
 ```
-1. /use-java                Load stack conventions (or /use-csharp, /use-conductor-sharp, etc.)
-2. Work normally            Claude follows the loaded conventions
+1. Work normally            The language rules load when Claude touches matching files
+2. Mention Conductor        The conductor-sharp skill loads when the task needs it
 ```
 
 #### Repository Context Tools
@@ -177,11 +174,7 @@ repomix /path/to/csharp-project --output context.md \
 
 ### Stack-Specific Conventions
 
-| Command | Purpose |
-|---------|---------|
-| `/use-java` | Load Java development conventions |
-| `/use-csharp` | Load C# development conventions |
-| `/use-conductor-sharp` | Load ConductorSharp workflow orchestration conventions |
+Not commands: see Usage above (`rules/` and `skills/`).
 
 ## Command Workflows
 
@@ -289,16 +282,16 @@ Tests (stdlib only), run from the repo root:
 ```bash
 python3 -m unittest discover -s hooks -v
 python3 -m unittest discover -s settings -v
+python3 -m unittest discover -s tests -v
 ```
 
 Change the hook and the merge script only together with their tests. To verify the guard in a live session, run `git -C . commit --dry-run`: it must be blocked.
 
 ## Adding New Stacks
 
-1. Create a new file in `stacks/` (e.g., `typescript.md`)
-2. Create a corresponding command in `commands/` (e.g., `use-typescript.md`)
-3. Review the change; you commit and push
-
+- **A language guide**: add `rules/<language>.md` with a `paths:` list in its frontmatter (for example `"**/*.go"`). `setup.sh` links it into `~/.claude/rules/`
+- **A framework or library guide** (large, needed only for some tasks): add `skills/<name>/SKILL.md` with a specific `description` (it is the trigger), keep `SKILL.md` under 500 lines and move detail into reference files linked from it
+- Run `python3 -m unittest discover -s tests -v`, then review the change; you commit and push
 
 ## Sources
 
@@ -321,5 +314,5 @@ Plugins.
 Skills.   
 Pre-commit hooks.   
 
-**TODO:** once `commands/` and `stacks/` become skills and rules, update Structure, Usage and `setup.sh` (it must link the new folders).
+**TODO:** migrate the remaining `commands/` to skills (then update Structure and `setup.sh`).
 **TODO:** document rollback phases (preparation, feasibility, fulfillment rollback) in the ConductorSharp orchestration chapter.
