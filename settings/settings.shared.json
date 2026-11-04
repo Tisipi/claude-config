@@ -21,6 +21,10 @@
       "Bash(git stash clear *)"
     ]
   },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline-command.sh"
+  },
   "hooks": {
     "PreToolUse": [
       {

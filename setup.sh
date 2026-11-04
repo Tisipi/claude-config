@@ -32,6 +32,9 @@ done
 # Symlink hooks directory (git guard referenced from ~/.claude/settings.json)
 ln -sfn "$SCRIPT_DIR/hooks" "$CLAUDE_DIR/hooks"
 
+# Symlink the status line script (registered by the shared settings; needs jq)
+ln -sf "$SCRIPT_DIR/statusline/statusline-command.sh" "$CLAUDE_DIR/statusline-command.sh"
+
 # Merge the shared settings (git guard permissions + hook) into settings.json; existing settings are kept
 if command -v python3 >/dev/null 2>&1; then
     python3 -I "$SCRIPT_DIR/settings/merge_settings.py" \

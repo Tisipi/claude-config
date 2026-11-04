@@ -189,7 +189,7 @@ class SharedSettingsFileTests(unittest.TestCase):
         self.assertTrue((SETTINGS_DIR.parent / "hooks" / "block_git_publish.py").exists())
 
     def test_contains_no_personal_or_machine_specific_settings(self):
-        self.assertEqual({"permissions", "hooks"}, set(self.shared))
+        self.assertEqual({"permissions", "hooks", "statusLine"}, set(self.shared))
         self.assertEqual({"deny", "ask"}, set(self.shared["permissions"]))
 
 

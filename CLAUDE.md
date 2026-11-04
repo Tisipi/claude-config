@@ -17,6 +17,7 @@ It is pushed to GitHub and meant for general use. Before finishing any change:
 - `skills/`: one folder per skill (`SKILL.md` under 500 lines, specific `description`, detail in linked reference files); workflow skills that only the user triggers set `disable-model-invocation: true`. No skill may tell Claude to commit or push
 - `hooks/`: the git guard hook and its tests
 - `settings/`: the shared part of the user's settings (`settings.shared.json`) and the script that merges it into `~/.claude/settings.json`, with its tests
+- `statusline/`: the status line script (needs `jq`; registered through the shared settings)
 - `tests/`: tests for `setup.sh`
 - `setup.sh`: links the above into `~/.claude/`; update it whenever a folder is added or moved
 - `README.md`: keep structure, usage and the Sources list in sync with reality

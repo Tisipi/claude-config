@@ -2,6 +2,7 @@
 # Run from the repo root: python3 -m unittest discover -s tests -v
 # Personal files already in ~/.claude must survive, and a second run must change nothing.
 
+import json
 import os
 import subprocess
 import tempfile
@@ -35,6 +36,24 @@ class SetupScriptTests(unittest.TestCase):
             link = self.claude / "rules" / rule.name
             self.assertTrue(link.is_symlink(), rule.name)
             self.assertEqual(rule.resolve(), link.resolve())
+
+    def test_links_statusline_script_and_registers_it(self):
+        result = self.run_setup()
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        link = self.claude / "statusline-command.sh"
+        self.assertTrue(link.is_symlink())
+        self.assertTrue(os.access(link, os.X_OK))
+        settings = json.loads((self.claude / "settings.json").read_text())
+        self.assertEqual("~/.claude/statusline-command.sh", settings["statusLine"]["command"])
+
+    def test_statusline_prints_model_directory_and_context(self):
+        payload = json.dumps({"model": {"display_name": "M"}, "workspace": {"current_dir": "/nonexistent"},
+                              "context_window": {"used_percentage": 42.3}})
+        result = subprocess.run(["bash", str(REPO / "statusline" / "statusline-command.sh")],
+                                input=payload, capture_output=True, text=True, check=False)
+
+        self.assertEqual("M | /nonexistent | ctx 42%", result.stdout.strip())
 
     def test_keeps_personal_rules_that_are_not_part_of_the_repo(self):
         personal = self.claude / "rules" / "personal.md"

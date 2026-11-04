@@ -29,6 +29,8 @@ claude-config/
 │   ├── settings.shared.json        # Shared, generic part of ~/.claude/settings.json
 │   ├── merge_settings.py           # Merges it into ~/.claude/settings.json (additive)
 │   └── test_merge_settings.py      # Its tests
+├── statusline/
+│   └── statusline-command.sh       # Status line: model, directory, git branch, context % (needs jq)
 ├── setup.sh               # Links everything into ~/.claude/ and merges the shared settings
 ├── rules/                 # Language guides, path-scoped: load when Claude touches matching files
 │   ├── csharp.md          # *.cs, *.csproj, .editorconfig, ...
@@ -264,7 +266,7 @@ Limit: it inspects the command text only. A script that runs `git commit` intern
 
 ### Shared settings
 
-`~/.claude/settings.json` holds personal settings (voice, plugins, model, permission mode, and every "don't ask again" rule Claude Code adds), so it is **not** tracked. Only the shared part lives in this repo, in `settings/settings.shared.json`: the deny and ask rules above and the hook registration.
+`~/.claude/settings.json` holds personal settings (voice, plugins, model, permission mode, and every "don't ask again" rule Claude Code adds), so it is **not** tracked. Only the shared part lives in this repo, in `settings/settings.shared.json`: the deny and ask rules above, the hook registration and the status line registration (an existing `statusLine` in `settings.json` wins).
 
 `setup.sh` links `hooks/` to `~/.claude/hooks` and merges the shared file into `~/.claude/settings.json` with `settings/merge_settings.py`:
 - Additive: lists are unioned, objects merged recursively, existing scalar values win. Nothing you already have is removed or overridden
