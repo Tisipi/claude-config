@@ -123,8 +123,8 @@ class SkillFileTests(unittest.TestCase):
                 self.assertLessEqual(len(description), 1536)
                 self.assertLess(len(text.splitlines()), 500)
 
-    def test_no_skill_tells_claude_to_commit_or_push(self):
-        for skill in (REPO / "skills").rglob("*.md"):
+    def test_no_skill_or_rule_tells_claude_to_commit_or_push(self):
+        for skill in [*(REPO / "skills").rglob("*.md"), *(REPO / "rules").glob("*.md")]:
             for number, line in enumerate(skill.read_text().splitlines(), 1):
                 with self.subTest(file=skill.name, line=number):
                     lowered = line.lower()

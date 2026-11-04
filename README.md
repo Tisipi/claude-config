@@ -305,6 +305,22 @@ Claude Code documentation (consulted 2026-10-26):
 - https://code.claude.com/docs/en/best-practices (writing an effective CLAUDE.md, verification, hooks, skills)
 - https://code.claude.com/docs/en/skills (SKILL.md format, frontmatter, commands merged into skills)
 
+Java documentation (consulted 2026-11-04), used for `rules/java.md`:
+
+- https://openjdk.org/projects/jdk/21/ and https://openjdk.org/projects/jdk/25/ (which JEPs are final: virtual threads, pattern matching for switch, record patterns, sequenced collections, scoped values)
+- https://openjdk.org/jeps/491 (`synchronized` no longer pins virtual threads, Java 24)
+- https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/Optional.html (`Optional` as a return type)
+- https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/ExecutorService.html (`close()`, since 19)
+- https://google.github.io/styleguide/javaguide.html (Google Java Style)
+- https://docs.spring.io/spring-framework/reference/core/beans/dependencies/factory-collaborators.html (constructor injection)
+- https://docs.spring.io/spring-boot/reference/features/external-config.html (`@ConfigurationProperties` with records)
+- https://docs.spring.io/spring-boot/reference/testing/testcontainers.html (`@ServiceConnection`)
+- https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html (`spring.threads.virtual.enabled`)
+- https://maven.apache.org/plugins/maven-compiler-plugin/compile-mojo.html (`maven.compiler.release`)
+- https://maven.apache.org/guides/introduction/introduction-to-dependency-mechanism.html (dependencyManagement, BOM import)
+- https://docs.gradle.org/current/userguide/toolchains.html (Java toolchains)
+- https://docs.junit.org/6.0.2/release-notes (JUnit 6 requires Java 17)
+
 
 ## Notes and Things to do
 
