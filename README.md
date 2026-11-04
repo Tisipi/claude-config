@@ -327,5 +327,3 @@ Java documentation (consulted 2026-11-04), used for `rules/java.md`:
 Plugins.   
 Skills.   
 Pre-commit hooks.   
-
-**TODO:** document rollback phases (preparation, feasibility, fulfillment rollback) in the ConductorSharp orchestration chapter.

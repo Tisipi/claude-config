@@ -12,8 +12,8 @@ Each layer implements the operations **Add / Modify / Delete** per specification
 
 | Phase | Purpose | Side effects |
 |---|---|---|
-| **Preparation** | Collect everything the later phases need: extract characteristics from the order item, validate them, enrich them (catalog defaults, inventory lookups, current service snapshot). Output is typed data. | None on external systems |
-| **Feasibility** | Pre-flight checks that the change can be made (referenced service exists, not terminated, capacity available) | None |
+| **Preparation** | Collect everything the later phases need: extract characteristics from the order item, validate them, enrich them (catalog defaults, inventory lookups, current service snapshot). Output is typed data. | None on the systems being changed |
+| **Feasibility** | Pre-flight checks that the change can be made (referenced service exists, not terminated, capacity available) | None on the systems being changed (a session or lock it opens is undone by its rollback) |
 | **Fulfillment** | Do the work: trigger resource orders, call southbound systems, write results to inventory | Yes |
 
 - All three phases always exist for every operation. A phase without work contains a single no-op worker: Conductor rejects a workflow definition without tasks
@@ -199,6 +199,44 @@ Per resource specification and operation, the three phases look like this:
   The service layer later reads the output characteristics from this record
 - **Delete**: either a southbound delete followed by a worker that records the final attributes, or a no-op fulfillment when the platform transitions the resource status itself. Do not set a status the platform sets; copy the full characteristic set
 - Idempotent re-create after delete: a southbound object that is deliberately kept stays referenced by its inventory record, so the next Create updates it instead of creating a duplicate
+
+### Rollback phases
+
+A phase that fails after changing something leaves that change behind. The platform can run an optional **rollback workflow** per phase (preparation, feasibility, fulfillment) when that phase fails; how a rollback is attached to a phase, and what input it receives, is defined by the platform, so check its documentation. A rollback undoes only what its own phase did:
+
+| Rollback of | Typically undoes |
+|---|---|
+| Preparation | Entries it registered (for example a service inventory record) |
+| Feasibility | Anything the checks opened and left open (a session, a lock) |
+| Fulfillment | The changes it made on southbound systems |
+
+- Bind the rollback input like any phase input: ids as context keys, earlier outputs as `prepare_output`. A value that may not exist yet (the failure can happen early) is nullable
+- **Idempotent**: it can run on a half-finished phase or twice. Treat "already gone" as success
+- **Decide from observed state, not from assumptions**: fetch what exists, then branch with a Switch task, instead of deleting blindly
+- **Cleanup that must not hide the original failure** (releasing a lock, closing a session) is `.AsOptional()`
+- Make the forward phase record what the rollback needs (ids of created objects) so the rollback does not have to rediscover it
+- A rollback is not a retry: it must not repeat the call that just failed
+- Keep rollbacks that are the same for every operation (delete the registered entry, terminate the session) in one shared set; add a custom one only for an operation with its own side effects
+
+```csharp
+public override void BuildDefinition()
+{
+    _builder.AddTask(wf => wf.FindMailbox, wf => new() { ServiceId = wf.WorkflowInput.ServiceId });
+
+    _builder.AddTask(
+        wf => wf.MailboxExists,
+        wf => new SwitchTaskInput { SwitchCaseValue = wf.FindMailbox.Output.State },   // Present or Missing
+        new DecisionCases<MailboxAddFulfillmentRollback>
+        {
+            [nameof(MailboxState.Present)] = sc => sc.AddTask(wf => wf.DeleteMailbox, wf => new() { ServiceId = wf.WorkflowInput.ServiceId }),
+        }
+    );
+
+    _builder.AddTask(wf => wf.ReleaseLock, wf => new() { ServiceId = wf.WorkflowInput.ServiceId }).AsOptional();
+}
+```
+
+Test rollback workers like any worker (see [testing.md](testing.md)), including a second run that finds nothing left to undo.
 
 ### Layout of an orchestration app
 
