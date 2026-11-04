@@ -795,7 +795,8 @@ public class MailboxAddFulfillmentInput : WorkflowInput<MailboxAddFulfillmentOut
 Rules that keep the flow maintainable:
 - **Extract once, in preparation.** Parse the order item a single time and emit it as one typed object (`OrderData`, `ResourceData`, `ServiceData`, `EnrichedAttributes`). Later phases bind to those fields and never re-parse the order item
 - Preparation output property names become snake_case path segments (`OrderData` becomes `order_data`), so the output type is a contract: renaming a property breaks the later phases' bindings. Cover it with a test
-- Feasibility and fulfillment can read the outputs of the phases before them through the same dotted names. Whether fulfillment can also read *feasibility* output depends on whether the platform exposes it; if it does not, carry the data in the preparation output instead
+- Feasibility and fulfillment can read the outputs of the phases before them, including the **feasibility output** in fulfillment: it arrives under `feasibility_output`, next to `prepare_output`. A feasibility workflow whose output is empty only validates (it fails by throwing); give it output properties when fulfillment needs something it discovered (for example a looked-up device family)
+- Besides dotted per-field bindings, a whole phase output can be bound as one typed property: `public required PrepareOutputType PrepareOutput { get; set; }` becomes `prepare_output`, and tasks then read `wf.WorkflowInput.PrepareOutput.Field`. Prefer this when many fields are used; use dotted bindings for one or two
 - `required` for mandatory fields, nullable for optional ones
 - Add/Modify operations with identical inputs share an abstract input base class (`FulfillmentInput<TOutput> : WorkflowInput<TOutput>`)
 - Reuse the worker's `Response` type as the workflow output property (`ResourceData = wf.ValidateInput.Output`) instead of copying fields

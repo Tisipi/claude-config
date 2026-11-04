@@ -322,3 +322,4 @@ Skills.
 Pre-commit hooks.   
 
 **TODO:** once `commands/` and `stacks/` become skills and rules, update Structure, Usage and `setup.sh` (it must link the new folders).
+**TODO:** document rollback phases (preparation, feasibility, fulfillment rollback) in the ConductorSharp orchestration chapter.
