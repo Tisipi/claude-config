@@ -20,6 +20,48 @@ Each layer implements the operations **Add / Modify / Delete** per specification
 - A failure in preparation or feasibility rejects the order before anything was changed. Put every check that can fail cheaply there, before fulfillment starts changing systems
 - Phase workflows are named by convention, with the names held in constants: `<layer>_<operation>_<kind>_<phase>` (for example `mailbox_add_resource_preparation`)
 
+### Orders, items and ids
+
+Two TM Forum order types drive the phases. Which one a workflow receives depends on its layer:
+
+| | Service layer | Resource layer |
+|---|---|---|
+| Order | TMF641 service order (`ServiceOrder`) | TMF652 resource order (`ResourceOrder`) |
+| Order item | `ServiceOrderItem`, its target in `item.service` | `ResourceOrderItem`, its target in `item.resource` |
+| Target id | **service id**: the record in service inventory | **resource id**: the record in resource inventory |
+| Operation | `OrderItemActionType`: Add, Modify, Delete | the same |
+
+What a phase workflow can bind from its input (see *Data flow between phases* for the binding mechanics; the platform defines the exact keys):
+
+| Value | Input key | Typical property | Layer |
+|---|---|---|---|
+| Order id | `order_id` | `OrderId` | service |
+| Order item id | `item_id` | `ItemId` | service |
+| Service id | `service_id` | `ServiceId` | service |
+| The item's service | `item.service` | `Service` (nullable) | service |
+| The whole order item | `item` | `Item` (`ResourceOrderItem`) | resource |
+| Resource id | `resource_id` | `ResourceId` | resource |
+
+```csharp
+public class MailboxAddPreparationInput : WorkflowInput<MailboxAddPreparationOutput>
+{
+    public required string OrderId { get; set; }        // order_id (PascalCase converts to snake_case)
+    public required string ServiceId { get; set; }      // service_id
+
+    [JsonPropertyName("item.service")]
+    public Service? Service { get; set; }               // the item's service; type from the TMF client package
+}
+```
+
+- **Distinguish the ids.** The order id and the item id identify things inside one order: the item id is unique only within its order. The service id and resource id identify inventory records that outlive the order. A service layer that creates a resource order gets back a *resource order id*; the resource workflow it starts receives the *resource id*. Never pass one where the other is expected
+- **The service id already exists on Add.** The platform creates the inventory record before preparation, which is why a preparation rollback deletes it
+- **Prefer what the input already carries.** `item.service` or `item.resource` holds the requested characteristics, so extraction needs no API call. Handle it being null (return an empty result or throw a clear error) instead of dereferencing it
+- **Fetch the whole order only when you need more than the item**: `GetServiceOrderAsync(orderId)` / `GetResourceOrderAsync(orderId)` on the TMF ordering client. Pick the item by its target id (`item.Service?.Id == serviceId`), never by index. Decide on multi-item orders explicitly: either reject them in validation or select by target id
+- **Two sources of characteristics.** The order item says what is *requested*; inventory says what *exists*. Add reads the item. Modify and Delete read both: inventory for the current state (`GetServiceAsync(serviceId)`, then the specification from the catalog via `service.ServiceSpecification.Id`), the item for the change
+- **Read characteristics through the specification, not by name.** `resource.ToEntityProxy<TProxy>(specification)` or a generic extraction worker (`ExtractServiceCharacteristics<TDto>`: inventory service, its catalog specification, mapped to a typed DTO) gives typed access and fails fast on a mismatching specification. The result becomes the typed preparation output (see *Data flow between phases*)
+- **The operation** comes from the item's `Action`. Phases are separate workflows per operation, so a phase rarely branches on it; shared validators take it as a parameter (`Operation = OrderItemActionType.Add`)
+- **Correlation:** when a phase creates a child order, set a deterministic `ExternalId` (for example the item id), so a retry finds the existing order instead of creating a second one
+
 ### Data flow between phases
 
 A phase workflow does not receive the order directly. Its **workflow input** is assembled by the platform from:
